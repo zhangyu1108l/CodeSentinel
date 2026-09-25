@@ -19,16 +19,16 @@
 
 ## 当前阶段
 
-**Phase 0：项目初始化 / 开始开发**
+**Phase 1：基础工程 — 已全部完成**
 
 ## 当前任务
 
-**尚未开始具体编码**
+Phase 1 已完成。下一步：Phase 2（GitHub App + Webhook）。
 
 ## 当前总体进度
 
 ```text
-Phase 1  基础工程                 ⬜ 未开始
+Phase 1  基础工程                 ✅ 已完成
 Phase 2  GitHub App + Webhook     ⬜ 未开始
 Phase 3  GitHub API               ⬜ 未开始
 Phase 4  Review Task + Redis      ⬜ 未开始
@@ -179,21 +179,21 @@ infra/
 
 ## Phase 1 状态
 
-**⬜ 未开始**
+**🟡 进行中（仅剩收尾）**
 
 ## 已完成
 
-- [ ] 创建 Monorepo
-- [ ] 创建 Spring Boot 项目
-- [ ] 创建 Python 项目
-- [ ] 创建 Docker Compose
-- [ ] 配置 MySQL
-- [ ] 配置 Redis
-- [ ] 基础测试通过
+- [x] 创建 Monorepo
+- [x] 创建 Spring Boot 项目
+- [x] 创建 Python 项目
+- [x] 创建 Docker Compose
+- [x] 配置 MySQL
+- [x] 配置 Redis
+- [x] 基础测试通过
 
 ## 当前任务
 
-暂无。
+Phase 1 基础工程全部完成。下一步：Phase 2（GitHub App + Webhook）。
 
 ## 阻塞问题
 
@@ -912,6 +912,102 @@ Phase 0：项目初始化
 
 ```text
 Phase 1：基础工程
+```
+
+---
+
+### 2026-09-25 (2)
+
+Spring Boot 基础工程初始化。
+
+已完成：
+
+- [x] 创建 `.gitignore`（Java / Maven / Python / IntelliJ / VS Code / Windows / Docker / Secrets）
+- [x] 创建 `backend/spring-service/` Maven 项目结构
+- [x] Spring Boot 3.4.4 + Java 21
+- [x] `spring-boot-starter-web`
+- [x] `spring-boot-starter-actuator`（暴露 health, info 端点）
+- [x] `pom.xml` 配置
+- [x] `application.yml` 配置（应用名、端口、Actuator）
+- [x] `CodeSentinelApplication.java` 启动类
+- [x] `HealthController.java`（`GET /api/health` 返回服务状态）
+- [x] `CodeSentinelApplicationTests.java`（Spring Context 启动测试）
+- [x] Maven 编译通过
+- [x] 测试通过（1/1, 0 failures）
+
+当前状态：
+
+```text
+Phase 1：基础工程 🟡 进行中
+Spring Boot ✅ / Python ⬜ / Docker Compose ⬜
+```
+
+下一步：
+
+```text
+Python FastAPI 基础工程
+```
+
+---
+
+### 2026-09-25 (3)
+
+Python FastAPI 基础工程初始化。
+
+已完成：
+
+- [x] 创建 `agent/` 目录结构（`app/`, `app/config/`, `tests/`）
+- [x] Python 3.13 + FastAPI
+- [x] `requirements.txt`（fastapi, uvicorn, pydantic-settings, httpx, pytest）
+- [x] `app/config/settings.py`（Pydantic Settings，读取 .env）
+- [x] `app/main.py`（FastAPI 入口，lifespan 事件，日志）
+- [x] `GET /health` 接口（返回 `{"status":"UP","service":"codesentinel-ai"}`）
+- [x] `.env.example`（环境变量示例，不含真实密钥）
+- [x] `tests/test_health.py`（TestClient 测试 /health）
+- [x] 测试通过（1/1, 0 failures）
+
+当前状态：
+
+```text
+Phase 1：基础工程 🟡 进行中
+Spring Boot ✅ / Python ✅ / Docker Compose ⬜
+```
+
+下一步：
+
+```text
+Docker Compose（MySQL 8 + Redis）
+```
+
+---
+
+### 2026-09-25 (4)
+
+Phase 1 基础设施建设完成：
+
+- [x] 创建根目录 `.env.example`（13 项配置：MySQL / Redis / Spring Boot / FastAPI / DeepSeek / GitHub App）
+- [x] 创建 `.env`（本地开发使用，Sensitive 留空，Git 已忽略）
+- [x] 创建 `docker-compose.yml`（MySQL 8.0 + Redis 7-Alpine，volume 持久化 + healthcheck + 独立网络）
+- [x] 更新 `application.yml`（MySQL/Redis 数据源配置使用环境变量引用）
+- [x] 创建占位目录 `knowledge/`、`frontend/`、`action/`（含 `.gitkeep`）
+- [x] MySQL 8.0.46 启动正常，`codesentinel` 数据库已创建
+- [x] Redis 7 启动正常，`PING → PONG`
+- [x] Spring Boot 测试：1/1 通过
+- [x] FastAPI 测试：1/1 通过
+
+MySQL 端口：3307（Docker），Redis 端口：6379
+
+当前状态：
+
+```text
+Phase 1：基础工程 ✅ 完成
+Spring Boot ✅ / Python ✅ / Docker Compose ✅
+```
+
+下一步：
+
+```text
+Phase 2：GitHub App + Webhook
 ```
 
 ---
