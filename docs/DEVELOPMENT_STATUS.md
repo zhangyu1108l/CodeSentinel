@@ -29,7 +29,7 @@ Phase 1 已完成。下一步：Phase 2（GitHub App + Webhook）。
 
 ```text
 Phase 1  基础工程                 ✅ 已完成
-Phase 2  GitHub App + Webhook     ⬜ 未开始
+Phase 2  GitHub App + Webhook     🟡 进行中（Webhook 接收 + 签名验证已完成）
 Phase 3  GitHub API               ⬜ 未开始
 Phase 4  Review Task + Redis      ⬜ 未开始
 Phase 5  Python AI Service        ⬜ 未开始
@@ -179,7 +179,7 @@ infra/
 
 ## Phase 1 状态
 
-**🟡 进行中（仅剩收尾）**
+**✅ 已完成**
 
 ## 已完成
 
@@ -225,26 +225,29 @@ Spring Boot
 
 ## 子任务
 
-- [ ] 创建 GitHub App
-- [ ] 配置 App ID
-- [ ] 配置 Private Key
-- [ ] 配置 Webhook Secret
-- [ ] 配置 Repository 权限
-- [ ] Webhook Controller
-- [ ] `X-Hub-Signature-256` 验证
-- [ ] `pull_request` Event 解析
-- [ ] 支持 `opened`
-- [ ] 支持 `synchronize`
-- [ ] 支持 `reopened`
+- [x] 创建 GitHub App
+- [x] 配置 App ID
+- [x] 配置 Private Key (PEM 文件路径方式)
+- [x] 配置 Webhook Secret (待用户填写 .env)
+- [x] 配置 Repository 权限
+- [x] Webhook Controller
+- [x] `X-Hub-Signature-256` 验证
+- [x] `pull_request` Event 解析
+- [x] 支持 `opened`
+- [x] 支持 `synchronize`
+- [x] 支持 `reopened`
 - [ ] Webhook 幂等基础设计
 
 ## Phase 2 状态
 
-**⬜ 未开始**
+**🟡 进行中**
+
+Webhook 接收 + 签名验证 + PR 事件解析已实现并测试通过。
+待完成：GitHub App 创建（需要用户介入）、幂等设计（依赖后续 Task 系统）。
 
 ## 当前任务
 
-暂无。
+待用户创建 GitHub App 并填写配置后，进行端到端 Webhook 联调验证。
 
 ## 阻塞问题
 
@@ -1004,10 +1007,106 @@ Phase 1：基础工程 ✅ 完成
 Spring Boot ✅ / Python ✅ / Docker Compose ✅
 ```
 
+Git commit：`056c1de`，已推送至 `origin/main`。
+
 下一步：
 
 ```text
 Phase 2：GitHub App + Webhook
+```
+
+---
+
+### 2026-09-26
+
+Phase 2 第一小步：Webhook 接收 + 签名验证 + PR 事件解析。
+
+已完成：
+
+- [x] 新增 `GithubAppProperties` (`cn.codesentinel.config`) — `@ConfigurationProperties(prefix = "github.app")` record 类
+- [x] 新增 `WebhookSignatureVerifier` (`cn.codesentinel.webhook`) — HMAC-SHA256 签名验证，使用 `MessageDigest.isEqual()` 常量时间比较
+- [x] 新增 `WebhookController` (`cn.codesentinel.webhook`) — `POST /api/github/webhook`
+- [x] 在 `application.yml` 中添加 `github.app.*` 配置（通过环境变量注入）
+- [x] 在 `CodeSentinelApplication` 添加 `@EnableConfigurationProperties(GithubAppProperties.class)`
+- [x] `WebhookSignatureVerifierTest`（11 个测试）
+  - 合法签名接受、非法签名拒绝、空/null 签名处理、错误前缀、空 hex 值、非法 hex、篡改 payload、空 payload、未配置 secret
+- [x] `WebhookControllerTest`（9 个测试，`@WebMvcTest` + `@TestPropertySource`）
+  - 缺失签名 → 401、非法签名 → 401、缺失事件头 → 400
+  - push 事件 → 200（忽略）、opened/synchronize/reopened → 200（记录日志）
+  - closed 动作 → 200（忽略）、非法 JSON body → 400
+- [x] Maven 编译 + 全部 21 个测试通过
+
+Webhook 请求处理流程：
+
+```text
+POST /api/github/webhook
+    ↓
+1. 检查 X-Hub-Signature-256 header（缺失 → 401）
+    ↓
+2. HMAC-SHA256 验证原始 body（失败 → 401），使用 MessageDigest.isEqual 常量时间比较
+    ↓
+3. 检查 X-GitHub-Event header（缺失 → 400）
+    ↓
+4. 仅处理 pull_request 事件（其他 → 200 忽略）
+    ↓
+5. 解析 JSON payload，提取 action
+    ↓
+6. 仅处理 opened / synchronize / reopened（其他 → 200 忽略）
+    ↓
+7. 记录日志（repo、PR number、sender、action）
+    ↓
+8. 返回 200
+```
+
+当前状态：
+
+```text
+Phase 2：GitHub App + Webhook 🟡 进行中
+Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / Secret 配置 🟡
+```
+
+### 2026-09-26 (2)
+
+Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
+
+已完成：
+
+- [x] 创建 `secrets/` 目录（`.gitignore` 已忽略 `secrets/`、`*.pem`、`*.key`）
+- [x] `GithubAppProperties` 增加 `privateKeyPath` 字段（4 字段 record）
+- [x] `application.yml` 增加 `github.app.private-key-path`（映射 `GITHUB_PRIVATE_KEY_PATH`）
+- [x] `.env.example` 更新：添加 `GITHUB_PRIVATE_KEY_PATH`，推荐方式一（文件路径），保留方式二（直接粘贴内容）
+- [x] `.env` 填写 `GITHUB_APP_ID=5086582`、`GITHUB_PRIVATE_KEY_PATH=secrets/codesentinel-lab.pem`
+- [x] 测试适配（`GithubAppProperties` 4 字段构造器）
+- [x] 全部 21 个测试通过
+
+GitHub App 已真实创建：
+
+| 项目 | 值 |
+|------|-----|
+| App Name | CodeSentinel-Lab |
+| App ID | 5086582 |
+| 安装仓库 | zhangyu1108l/CodeSentinel |
+| Webhook | Smee 代理已配置 |
+
+待用户完成：
+
+```text
+[ ] 将 .pem 文件放入 secrets/codesentinel-lab.pem
+[ ] 在 .env 中填写 GITHUB_WEBHOOK_SECRET
+[ ] Webhook 联调验证
+```
+
+当前状态：
+
+```text
+Phase 2：GitHub App + Webhook 🟡 进行中
+Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / 凭证配置 🟡（待用户放入 PEM 和 Secret）
+```
+
+下一步：
+
+```text
+用户放入 PEM 文件 + 填写 Webhook Secret → 启动 Spring Boot → Smee Webhook 联调
 ```
 
 ---
@@ -1129,27 +1228,25 @@ Integration Test
 # 23. 当前唯一下一步
 
 ```text
-Phase 1：基础工程
+Phase 2：GitHub App + Webhook
 ```
 
 目标：
 
 ```text
-Spring Boot 3
+GitHub App 创建
 +
-Python FastAPI
+Webhook 接收
 +
-MySQL
+签名验证
 +
-Redis
-+
-Docker Compose
+PR 事件解析
 ```
 
 不要提前实现：
 
 ```text
-GitHub App
+GitHub API（Phase 3）
 Agent
 Static Analysis
 RAG
