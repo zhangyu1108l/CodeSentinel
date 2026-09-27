@@ -22,3 +22,10 @@ management:
   endpoint:
     health:
       show-details: always
+
+github:
+  app:
+    app-id: ${GITHUB_APP_ID:}
+    private-key: ${GITHUB_PRIVATE_KEY:}
+    private-key-path: ${GITHUB_PRIVATE_KEY_PATH:}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
