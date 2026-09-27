@@ -19,17 +19,17 @@
 
 ## 当前阶段
 
-**Phase 1：基础工程 — 已全部完成**
+**Phase 2：GitHub App + Webhook — 已全部完成**
 
 ## 当前任务
 
-Phase 1 已完成。下一步：Phase 2（GitHub App + Webhook）。
+Phase 2 已完成。下一步：Phase 3（GitHub API）。
 
 ## 当前总体进度
 
 ```text
 Phase 1  基础工程                 ✅ 已完成
-Phase 2  GitHub App + Webhook     🟡 进行中（Webhook 接收 + 签名验证已完成）
+Phase 2  GitHub App + Webhook     ✅ 已完成
 Phase 3  GitHub API               ⬜ 未开始
 Phase 4  Review Task + Redis      ⬜ 未开始
 Phase 5  Python AI Service        ⬜ 未开始
@@ -236,18 +236,29 @@ Spring Boot
 - [x] 支持 `opened`
 - [x] 支持 `synchronize`
 - [x] 支持 `reopened`
-- [ ] Webhook 幂等基础设计
+- [x] 真实 GitHub Webhook 联调（Smee + Spring Boot）
 
 ## Phase 2 状态
 
-**🟡 进行中**
+**✅ 已完成**
 
-Webhook 接收 + 签名验证 + PR 事件解析已实现并测试通过。
-待完成：GitHub App 创建（需要用户介入）、幂等设计（依赖后续 Task 系统）。
+Webhook 全链路已打通：
+
+```text
+GitHub PR → GitHub App → Smee → Spring Boot /api/github/webhook
+                                ↓
+                         X-Hub-Signature-256 验证通过
+                                ↓
+                         pull_request 事件解析成功
+                                ↓
+                         返回 200 OK
+```
+
+Webhook 幂等设计依赖后续 Task 系统（Phase 4），届时再统一实现。
 
 ## 当前任务
 
-待用户创建 GitHub App 并填写配置后，进行端到端 Webhook 联调验证。
+Phase 2 已完成。下一步：Phase 3（GitHub API）。
 
 ## 阻塞问题
 
@@ -914,8 +925,42 @@ Phase 0：项目初始化
 下一步：
 
 ```text
-Phase 1：基础工程
+Phase 3：GitHub API
 ```
+
+---
+
+### 2026-09-27
+
+Phase 2 最终验收：真实 GitHub Webhook 联调成功。
+
+已完成：
+
+- [x] 将 `feature/add-webhook-verification` 合并到 `webhook-test` 分支
+- [x] 配置 Smee 代理（`https://smee.io/...` 转发到 `localhost:8080`）
+- [x] 解决 Spring Boot 读取 `.env` 问题（`mvn spring-boot:run` 不自动加载 `.env`，需在启动前手动设置环境变量）
+- [x] 修复 Webhook Secret 签名验证失败（Secret 值不一致导致 HMAC 不匹配）
+- [x] 真实 Webhook 联调验证通过：
+  - GitHub PR #1 `synchronize` 事件成功到达
+  - Smee 转发 `POST /api/github/webhook` 返回 200
+  - Spring Boot 日志输出：`Received pull_request event: action=synchronize, repo=zhangyu1108l/CodeSentinel, pr=1, sender=zhangyu1108l`
+- [x] 全部 21 个测试通过（1 context + 9 controller + 11 verifier）
+
+当前状态：
+
+```text
+Phase 2：GitHub App + Webhook ✅ 完成
+```
+
+已知问题：
+
+- `.env` 不会被 `mvn spring-boot:run` 自动加载，后续可考虑引入 dotenv 依赖
+- Webhook 幂等设计待 Phase 4 与 Task 系统一起实现
+
+下一步：
+
+```text
+Phase 3：GitHub API
 
 ---
 
