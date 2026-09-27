@@ -993,8 +993,32 @@ Spring Boot ✅ / Python ⬜ / Docker Compose ⬜
 下一步：
 
 ```text
-Python FastAPI 基础工程
+Phase 3：GitHub API
 ```
+
+### 2026-09-27 (Merge)
+
+Phase 2 最终合并：PR #1 已合并到 `main`。
+
+已完成：
+
+- [x] PR #1 (`webhook-test` → `main`) 通过 GitHub CLI 合并
+- [x] 合并无冲突，merge commit: `494ac5c`
+- [x] `main` 分支已包含全部 Phase 2 Webhook 代码
+- [x] `main` 分支运行 Maven 测试：21/21 通过，BUILD SUCCESS
+- [x] 保留 `webhook-test` 和 `feature/add-webhook-verification` 分支供追溯
+- [x] 更新 `DEVELOPMENT_STATUS.md` 至最终状态
+
+当前状态：
+
+```text
+Phase 2：GitHub App + Webhook ✅ 完成（已合并至 main）
+```
+
+下一步：
+
+```text
+Phase 3：GitHub API
 
 ---
 
@@ -1106,8 +1130,8 @@ POST /api/github/webhook
 当前状态：
 
 ```text
-Phase 2：GitHub App + Webhook 🟡 进行中
-Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / Secret 配置 🟡
+Phase 2：GitHub App + Webhook ✅ 已完成
+Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / 真实联调 ✅
 ```
 
 ### 2026-09-26 (2)
@@ -1124,34 +1148,33 @@ Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
 - [x] 测试适配（`GithubAppProperties` 4 字段构造器）
 - [x] 全部 21 个测试通过
 
-GitHub App 已真实创建：
+GitHub App 已真实创建并完成 Webhook 联调：
 
 | 项目 | 值 |
 |------|-----|
 | App Name | CodeSentinel-Lab |
 | App ID | 5086582 |
 | 安装仓库 | zhangyu1108l/CodeSentinel |
-| Webhook | Smee 代理已配置 |
+| Webhook | Smee 代理已配置并验证通过 |
+| 联调 PR | #1 (已合并至 main) |
 
-待用户完成：
+已完成：
 
-```text
-[ ] 将 .pem 文件放入 secrets/codesentinel-lab.pem
-[ ] 在 .env 中填写 GITHUB_WEBHOOK_SECRET
-[ ] Webhook 联调验证
-```
+- [x] 将 .pem 文件放入 secrets/codesentinel-lab.pem
+- [x] 在 .env 中填写 GITHUB_WEBHOOK_SECRET
+- [x] Webhook 联调验证（Smee + Spring Boot，HTTP 200）
 
 当前状态：
 
 ```text
-Phase 2：GitHub App + Webhook 🟡 进行中
-Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / 凭证配置 🟡（待用户放入 PEM 和 Secret）
+Phase 2：GitHub App + Webhook ✅ 已完成
+Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / 真实联调 ✅
 ```
 
 下一步：
 
 ```text
-用户放入 PEM 文件 + 填写 Webhook Secret → 启动 Spring Boot → Smee Webhook 联调
+Phase 3：GitHub API
 ```
 
 ---
@@ -1273,26 +1296,22 @@ Integration Test
 # 23. 当前唯一下一步
 
 ```text
-Phase 2：GitHub App + Webhook
+Phase 3：GitHub API
 ```
 
 目标：
 
 ```text
-GitHub App 创建
+Installation Token 获取
 +
-Webhook 接收
-+
-签名验证
-+
-PR 事件解析
+PR / Commit / Diff / Changed Files API
 ```
 
 不要提前实现：
 
 ```text
-GitHub API（Phase 3）
-Agent
+Review Task（Phase 4）
+AI Agent
 Static Analysis
 RAG
 Milvus
