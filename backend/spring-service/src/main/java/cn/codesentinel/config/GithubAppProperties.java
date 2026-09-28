@@ -7,5 +7,7 @@ public record GithubAppProperties(
         String appId,
         String privateKey,
         String privateKeyPath,
-        String webhookSecret
+        String webhookSecret,
+        String installationId,
+        String apiBaseUrl
 ) {}

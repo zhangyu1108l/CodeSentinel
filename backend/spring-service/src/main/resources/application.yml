@@ -29,3 +29,5 @@ github:
     private-key: ${GITHUB_PRIVATE_KEY:}
     private-key-path: ${GITHUB_PRIVATE_KEY_PATH:}
     webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+    installation-id: ${GITHUB_INSTALLATION_ID:}
+    api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}

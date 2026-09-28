@@ -21,7 +21,7 @@ class WebhookSignatureVerifierTest {
 
     @BeforeEach
     void setUp() {
-        GithubAppProperties properties = new GithubAppProperties(null, null, null, TEST_SECRET);
+        GithubAppProperties properties = new GithubAppProperties(null, null, null, TEST_SECRET, null, null);
         verifier = new WebhookSignatureVerifier(properties);
     }
 
@@ -103,7 +103,7 @@ class WebhookSignatureVerifierTest {
 
     @Test
     void shouldRejectWhenSecretNotConfigured() {
-        GithubAppProperties emptyProperties = new GithubAppProperties(null, null, null, "");
+        GithubAppProperties emptyProperties = new GithubAppProperties(null, null, null, "", null, null);
         WebhookSignatureVerifier emptyVerifier = new WebhookSignatureVerifier(emptyProperties);
 
         byte[] payload = "test".getBytes(StandardCharsets.UTF_8);
