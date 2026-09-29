@@ -23,6 +23,10 @@ management:
     health:
       show-details: always
 
+review:
+  task:
+    max-retries: ${REVIEW_TASK_MAX_RETRIES:3}
+
 github:
   app:
     app-id: ${GITHUB_APP_ID:}

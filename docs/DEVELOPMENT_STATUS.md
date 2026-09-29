@@ -19,19 +19,19 @@
 
 ## 当前阶段
 
-**Phase 2：GitHub App + Webhook — 已全部完成**
+**Phase 4：Review Task + Redis — 已全部完成**
 
 ## 当前任务
 
-Phase 2 已完成。下一步：Phase 3（GitHub API）。
+Phase 4 已完成。下一步：Phase 5（Python AI Service + DeepSeek）。
 
 ## 当前总体进度
 
 ```text
 Phase 1  基础工程                 ✅ 已完成
 Phase 2  GitHub App + Webhook     ✅ 已完成
-Phase 3  GitHub API               ⬜ 未开始
-Phase 4  Review Task + Redis      ⬜ 未开始
+Phase 3  GitHub API               ✅ 已完成
+Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ⬜ 未开始
 Phase 6  Code Context             ⬜ 未开始
 Phase 7  Static Analysis          ⬜ 未开始
@@ -274,20 +274,19 @@ Phase 2 已完成。下一步：Phase 3（GitHub API）。
 
 ## 子任务
 
-- [ ] Installation Token 获取
-- [ ] Token 缓存 / 刷新
-- [ ] Repository API
-- [ ] Pull Request API
-- [ ] Commit API
-- [ ] Changed Files API
-- [ ] Diff 获取
-- [ ] 文件内容获取
-- [ ] GitHub API 错误处理
-- [ ] Rate Limit 处理基础机制
+- [x] Installation Token 获取
+- [x] Repository API
+- [x] Pull Request API
+- [x] Commit API
+- [x] Changed Files / Diff 获取
+- [x] 文件内容获取
+- [x] GitHub API 错误处理
+- [ ] Token 缓存 / 刷新（Phase 3.x 后续）
+- [ ] Rate Limit 处理基础机制（Phase 3.x 后续）
 
 ## 关键输出
 
-系统至少能够获得：
+系统已经能够获得：
 
 ```text
 Repository
@@ -300,11 +299,72 @@ File Content
 
 ## Phase 3 状态
 
-**⬜ 未开始**
+**✅ 已完成**
+
+完整数据获取链路：
+
+```text
+Webhook (Phase 2)
+    ↓
+GithubPullRequestClient.getPullRequest(owner, repo, prNumber)
+    ↓ PullRequest { number, title, state, head: { sha, ref }, base: { ref } }
+    ↓
+GithubCommitClient.getCommit(owner, repo, head.sha)
+    ↓ Commit { sha, message, files: [{ filename, status, patch }] }
+    ↓
+GithubFileContentClient.getFileContent(owner, repo, file.filename, head.sha)
+    ↓ FileContent { path, content }
+    ↓
+AI Review (Phase 5+)
+```
+
+## Phase 3 子阶段
+
+### Phase 3.1：GitHub App JWT + Installation Token
+
+- [x] `GithubJwtService` — RS256 JWT 生成（纯 Java 标准库，零额外依赖）
+- [x] `GithubAuthService` — App JWT → Installation Access Token
+- [x] `InstallationToken` record — token + expires_at
+- [x] `GithubApiException` — 统一异常，含 HTTP statusCode
+- [x] 测试：GithubJwtServiceTest（20 tests）+ GithubAuthServiceTest（13 tests）
+
+### Phase 3.2：GitHub API Client 基础设施
+
+- [x] `GithubApiClient` — 共享 RestClient（baseUrl + Accept header + 错误处理）
+- [x] 非 2xx 响应 → `GithubApiException(statusCode, body)`
+- [x] 测试：GithubApiClientTest（10 tests）
+
+### Phase 3.3：Repository API
+
+- [x] `GithubRepositoryClient` — GET /repos/{owner}/{repo}
+- [x] `Repository` record — id, full_name, name
+- [x] 测试：GithubRepositoryClientTest（8 tests）
+
+### Phase 3.4：Pull Request API
+
+- [x] `GithubPullRequestClient` — GET /repos/{owner}/{repo}/pulls/{number}
+- [x] `PullRequest` record — number, title, state, head{sha, ref}, base{ref}
+- [x] 测试：GithubPullRequestClientTest（10 tests）
+
+### Phase 3.5：Commit / Diff / Changed Files API
+
+- [x] `GithubCommitClient` — GET /repos/{owner}/{repo}/commits/{sha}
+- [x] `Commit` record — sha, message, files[{ filename, status, patch }]
+- [x] 测试：GithubCommitClientTest（11 tests）
+
+### Phase 3.6：File Content API
+
+- [x] `GithubFileContentClient` — GET /repos/{owner}/{repo}/contents/{path}?ref={sha}
+- [x] `FileContent` record — path, content（Base64 解码后）
+- [x] 测试：GithubFileContentClientTest（11 tests）
+
+## 当前测试
+
+全量测试：**104/104** 通过，BUILD SUCCESS。
 
 ## 当前任务
 
-暂无。
+Phase 3 已完成。下一步：Phase 4（Review Task + Redis）。
 
 ## 阻塞问题
 
@@ -332,33 +392,80 @@ Python Worker
 
 ## 子任务
 
-- [ ] ReviewTask Entity
-- [ ] ReviewTask Repository
-- [ ] ReviewTask Service
-- [ ] Task Status
-- [ ] Redis Task Producer
-- [ ] Python Worker
-- [ ] Task 消费
-- [ ] 基础失败处理
-- [ ] retry_count
-- [ ] 幂等控制
+- [x] ReviewTask Entity
+- [x] ReviewTask Repository
+- [x] ReviewTask Service
+- [x] Task Status (PENDING / RUNNING / COMPLETED / FAILED)
+- [x] Redis Task Producer
+- [x] Python Worker (BLPOP consumer)
+- [x] Task 消费
+- [x] 基础失败处理
+- [x] retry_count
+- [x] 幂等控制 (owner + repo + prNumber + commitSha)
 
-## 任务状态
+## Phase 4 子阶段
+
+- [x] Phase 4.1：ReviewTask Entity + TaskStatus
+- [x] Phase 4.2：ReviewTaskRepository + ReviewTaskService
+- [x] Phase 4.3：Webhook → ReviewTaskService.createTask
+- [x] Phase 4.4：Redis Producer (RPUSH to codesentinel:review:tasks)
+- [x] Phase 4.5：Python Worker (BLPOP + TaskHandler)
+- [x] Phase 4.6：Retry + Idempotency
+
+## Phase 4 完成链路
 
 ```text
-PENDING
-RUNNING
-COMPLETED
-FAILED
+GitHub Webhook
+    ↓
+WebhookController
+    ↓
+ReviewTaskService.createTask()  ← 幂等 (owner+repo+pr+sha)
+    ↓
+ReviewTask(PENDING) → MySQL
+    ↓
+ReviewTaskProducer.publish() → Redis RPUSH
+    ↓
+Redis List "codesentinel:review:tasks"
+    ↓
+Python Worker BLPOP → TaskHandler
+    ↓
+Java 状态 API (Running / Complete / Failure)
+    ↓
+成功 → COMPLETED
+失败 → retryCount < 3 → PENDING → Redis 重入队
+         retryCount >= 3 → FAILED
 ```
+
+## Retry 配置
+
+- MAX_RETRY_COUNT: 3（环境变量 REVIEW_TASK_MAX_RETRIES）
+- retryCount 由 Java / MySQL 作为唯一数据源
+- Python Worker 不自己计算 retryCount
+
+## Java 内部 API
+
+| 端点 | 说明 |
+|---|---|
+| POST /api/tasks/{taskId}/running | 标记 RUNNING |
+| POST /api/tasks/{taskId}/complete | 标记 COMPLETED |
+| POST /api/tasks/{taskId}/failure | 返回 {"retry":bool, "taskId":int, "retryCount":int, "status":"PENDING"/"FAILED"} |
+
+## 测试结果
+
+| 服务 | 总数 | 通过 | 状态 |
+|---|---|---|---|
+| Java (Spring Boot) | 152 | 152 | ✅ BUILD SUCCESS |
+| Python (agent) | 25 | 25 | ✅ 全部通过 |
+
+> 注：test_health.py 在 Windows 临时端口耗尽时偶发 WinError 10055 失败，属于系统环境问题（已通过 `netsh int ipv4 set dynamicport tcp start=10000 num=55535` 解决），非 Phase 4 代码问题。
 
 ## Phase 4 状态
 
-**⬜ 未开始**
+**✅ 已完成**
 
 ## 当前任务
 
-暂无。
+Phase 4 全部完成。下一步：Phase 5（Python AI Service + DeepSeek）。
 
 ## 阻塞问题
 
@@ -1134,6 +1241,71 @@ Phase 2：GitHub App + Webhook ✅ 已完成
 Webhook 接收 ✅ / 签名验证 ✅ / PR 事件解析 ✅ / GitHub App 创建 ✅ / 真实联调 ✅
 ```
 
+---
+
+### 2026-09-28
+
+Phase 3（GitHub API）全部 6 个子阶段完成。
+
+已完成：
+
+- [x] Phase 3.1：GithubJwtService（RS256 JWT）+ GithubAuthService（Installation Token）+ GithubApiException + InstallationToken
+- [x] Phase 3.2：GithubApiClient（共享 RestClient，baseUrl + Accept + defaultStatusHandler → GithubApiException）
+- [x] Phase 3.3：GithubRepositoryClient + Repository record（GET /repos/{owner}/{repo}）
+- [x] Phase 3.4：GithubPullRequestClient + PullRequest record（GET /repos/{owner}/{repo}/pulls/{number}）
+- [x] Phase 3.5：GithubCommitClient + Commit record（GET /repos/{owner}/{repo}/commits/{sha}，含 files + patch）
+- [x] Phase 3.6：GithubFileContentClient + FileContent record（GET .../contents/{path}?ref={sha}，Base64 解码）
+- [x] 新增 19 个文件（13 main + 6 test），约 2500 行代码
+- [x] 全量测试：104/104 通过，BUILD SUCCESS
+- [x] Git commit：`b379eba` — feat(github): complete phase 3 github api integration
+
+Phase 3 实现了完整的 GitHub API 数据获取链路：
+
+```text
+Webhook → PR → Commit (files + patches) → File Content → AI Review
+```
+
+当前状态：
+
+```text
+Phase 3：GitHub API ✅ 完成
+```
+
+当前包结构：
+
+```text
+cn.codesentinel/
+├── config/
+│   └── GithubAppProperties.java        (6 字段配置)
+├── github/
+│   ├── GithubJwtService.java           (JWT 生成)
+│   ├── GithubAuthService.java          (Token 获取)
+│   ├── GithubApiClient.java            (共享 RestClient)
+│   ├── GithubApiException.java         (统一异常)
+│   ├── InstallationToken.java          (token 生命周期)
+│   ├── Repository.java                 (仓库信息)
+│   ├── PullRequest.java                (PR 元数据)
+│   ├── Commit.java                     (提交 + 文件变更 + patch)
+│   ├── FileContent.java                (文件完整内容)
+│   ├── GithubRepositoryClient.java     (仓库 API)
+│   ├── GithubPullRequestClient.java    (PR API)
+│   ├── GithubCommitClient.java         (提交 API)
+│   └── GithubFileContentClient.java    (文件内容 API)
+├── webhook/
+│   ├── WebhookController.java
+│   └── WebhookSignatureVerifier.java
+└── controller/
+    └── HealthController.java
+```
+
+下一步：
+
+```text
+Phase 4：Review Task + Redis
+```
+
+---
+
 ### 2026-09-26 (2)
 
 Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
@@ -1296,23 +1468,22 @@ Integration Test
 # 23. 当前唯一下一步
 
 ```text
-Phase 3：GitHub API
+Phase 5：Python AI Service + DeepSeek
 ```
 
 目标：
 
 ```text
-Installation Token 获取
-+
-PR / Commit / Diff / Changed Files API
+Spring Boot → Python AI Service → DeepSeek → Structured Finding → Spring Boot
 ```
 
 不要提前实现：
 
 ```text
-Review Task（Phase 4）
-AI Agent
-Static Analysis
+Code Context (Phase 6)
+Static Analysis (Phase 7)
+LangGraph Multi-Agent (Phase 8)
+GitHub Comment (Phase 9)
 RAG
 Milvus
 Dashboard

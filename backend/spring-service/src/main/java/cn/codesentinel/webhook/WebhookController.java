@@ -1,5 +1,6 @@
 package cn.codesentinel.webhook;
 
+import cn.codesentinel.task.ReviewTaskService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -21,10 +22,14 @@ public class WebhookController {
 
     private final WebhookSignatureVerifier signatureVerifier;
     private final ObjectMapper objectMapper;
+    private final ReviewTaskService reviewTaskService;
 
-    public WebhookController(WebhookSignatureVerifier signatureVerifier, ObjectMapper objectMapper) {
+    public WebhookController(WebhookSignatureVerifier signatureVerifier,
+                             ObjectMapper objectMapper,
+                             ReviewTaskService reviewTaskService) {
         this.signatureVerifier = signatureVerifier;
         this.objectMapper = objectMapper;
+        this.reviewTaskService = reviewTaskService;
     }
 
     @PostMapping("/api/github/webhook")
@@ -65,24 +70,41 @@ public class WebhookController {
             }
 
             JsonNode repo = json.get("repository");
-            String repoName = repo != null && repo.has("full_name")
-                    ? repo.get("full_name").asText() : "unknown";
+            String fullName = repo != null && repo.has("full_name")
+                    ? repo.get("full_name").asText() : null;
 
             JsonNode pr = json.get("pull_request");
             int prNumber = pr != null && pr.has("number")
                     ? pr.get("number").asInt() : -1;
+            String commitSha = null;
+            if (pr != null && pr.has("head") && pr.get("head").has("sha")) {
+                commitSha = pr.get("head").get("sha").asText();
+            }
 
-            JsonNode sender = json.get("sender");
-            String senderLogin = sender != null && sender.has("login")
-                    ? sender.get("login").asText() : "unknown";
+            if (fullName == null || commitSha == null || prNumber == -1) {
+                log.error("Missing required webhook fields: fullName={}, prNumber={}, sha={}",
+                        fullName, prNumber, commitSha);
+                return ResponseEntity.status(400).build();
+            }
 
-            log.info("Received pull_request event: action={}, repo={}, pr={}, sender={}",
-                    action, repoName, prNumber, senderLogin);
+            String[] parts = fullName.split("/", 2);
+            if (parts.length != 2) {
+                log.error("Invalid repository full_name format: {}", fullName);
+                return ResponseEntity.status(400).build();
+            }
+
+            String owner = parts[0];
+            String repoName = parts[1];
+
+            reviewTaskService.createTask(owner, repoName, prNumber, commitSha);
+
+            log.info("Created review task: owner={}, repo={}, pr={}, sha={}, action={}",
+                    owner, repoName, prNumber, commitSha, action);
 
             return ResponseEntity.ok().build();
         } catch (Exception e) {
-            log.error("Failed to parse webhook payload", e);
-            return ResponseEntity.status(400).build();
+            log.error("Failed to process webhook request", e);
+            return ResponseEntity.status(500).build();
         }
     }
 }
