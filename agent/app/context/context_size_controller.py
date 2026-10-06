@@ -18,6 +18,13 @@ trims the least important related items until the group fits, and
 aggregate_stats sums the per-file results. Every function is pure: no IO,
 no third party dependency and no mutation of the input.
 
+Token control stays an estimate. estimate_tokens measures text with one
+fixed deterministic rule, tokens_for_chars and chars_for_tokens convert
+between the two units, and budget_from_tokens derives a character
+ContextBudget from token limits so the existing controllers can enforce
+it. No tokenizer SDK is involved, and an assembled prompt should still be
+checked with estimate_tokens before it is sent.
+
 Trimming rules: related code is dropped whole by priority, except a
 NESTED_TYPE whose body exceeds max_item_chars, which degrades to its
 declaration header when ClassContext.header_end_line is known.
@@ -553,6 +560,83 @@ def aggregate_stats(files: list[FileContext]) -> ContextStats:
         truncated_items=totals["truncated_items"],
         retained_source_chars=totals["retained_source_chars"],
     )
+
+
+def tokens_for_chars(
+    chars: int, chars_per_token: int = _OTHER_CHARS_PER_TOKEN
+) -> int:
+    """Tokens a non CJK text of this many characters is estimated to need.
+
+    Uses the same linear rule as estimate_tokens, so estimates and
+    conversions stay consistent. A missing or negative count yields 0 and
+    the rate is clamped to at least one character per token.
+    """
+    if not chars:
+        return 0
+    width = max(1, int(chars_per_token))
+    return max(0, math.ceil(int(chars) / width))
+
+
+def chars_for_tokens(
+    tokens: int, chars_per_token: int = _OTHER_CHARS_PER_TOKEN
+) -> int:
+    """Characters that fit into this many tokens at the planning rate.
+
+    Inverse of tokens_for_chars, meant to turn a token budget into a
+    character budget before assembly. The default rate is the estimator's
+    non CJK term, so CJK heavy text may fit fewer characters per token;
+    callers should verify assembled text with estimate_tokens.
+    """
+    if not tokens:
+        return 0
+    width = max(1, int(chars_per_token))
+    return max(0, int(tokens) * width)
+
+
+def budget_from_tokens(
+    *,
+    max_file_tokens: int | None = None,
+    max_total_tokens: int | None = None,
+    max_related_tokens: int | None = None,
+    max_item_tokens: int | None = None,
+    min_file_tokens: int | None = None,
+    base: ContextBudget | None = None,
+    chars_per_token: int = _OTHER_CHARS_PER_TOKEN,
+) -> ContextBudget:
+    """Derive a character ContextBudget from token limits.
+
+    Only the token limits that are given are converted; every other limit
+    comes from base (default DEFAULT_BUDGET), so the result plugs straight
+    into apply_context_budget and apply_context_budget_to_files without
+    changing their behaviour. base is not modified. This is a planning
+    conversion, not a tokenizer: an assembled prompt should still be
+    checked with estimate_tokens.
+    """
+    source = base if base is not None else DEFAULT_BUDGET
+    updates: dict[str, int] = {}
+
+    if max_file_tokens is not None:
+        updates["max_file_chars"] = chars_for_tokens(
+            max_file_tokens, chars_per_token
+        )
+    if max_total_tokens is not None:
+        updates["max_total_chars"] = chars_for_tokens(
+            max_total_tokens, chars_per_token
+        )
+    if max_related_tokens is not None:
+        updates["max_related_chars"] = chars_for_tokens(
+            max_related_tokens, chars_per_token
+        )
+    if max_item_tokens is not None:
+        updates["max_item_chars"] = chars_for_tokens(
+            max_item_tokens, chars_per_token
+        )
+    if min_file_tokens is not None:
+        updates["min_file_chars"] = chars_for_tokens(
+            min_file_tokens, chars_per_token
+        )
+
+    return source.model_copy(update=updates)
 
 
 def _reduce_total(

@@ -13,9 +13,12 @@ from app.context.context_size_controller import (
     aggregate_stats,
     apply_context_budget,
     apply_context_budget_to_files,
+    budget_from_tokens,
+    chars_for_tokens,
     estimate_tokens,
     measure_context,
     plan_file_budgets,
+    tokens_for_chars,
 )
 from app.context.related_code_builder import KIND_PRIORITY
 from app.schemas.code_context import (
@@ -1656,3 +1659,306 @@ class TestMultiFileIntegration:
         assert all(f.methods for f in results)
         again = apply_context_budget_to_files(results, budget)
         assert again == results
+
+
+class TestTokenControlConversions:
+    def test_tokens_for_chars_zero(self):
+        assert tokens_for_chars(0) == 0
+
+    def test_tokens_for_chars_none(self):
+        assert tokens_for_chars(None) == 0
+
+    def test_tokens_for_chars_negative(self):
+        assert tokens_for_chars(-10) == 0
+
+    def test_tokens_for_chars_ceil(self):
+        assert tokens_for_chars(1) == 1
+        assert tokens_for_chars(3) == 1
+        assert tokens_for_chars(4) == 2
+        assert tokens_for_chars(9) == 3
+        assert tokens_for_chars(10) == 4
+
+    def test_tokens_for_chars_custom_rate(self):
+        assert tokens_for_chars(10, chars_per_token=2) == 5
+        assert tokens_for_chars(10, chars_per_token=4) == 3
+
+    def test_tokens_for_chars_rate_is_clamped(self):
+        assert tokens_for_chars(10, chars_per_token=0) == 10
+        assert tokens_for_chars(10, chars_per_token=-3) == 10
+
+    def test_chars_for_tokens_zero(self):
+        assert chars_for_tokens(0) == 0
+
+    def test_chars_for_tokens_none(self):
+        assert chars_for_tokens(None) == 0
+
+    def test_chars_for_tokens_negative(self):
+        assert chars_for_tokens(-5) == 0
+
+    def test_chars_for_tokens_multiple(self):
+        assert chars_for_tokens(1) == 3
+        assert chars_for_tokens(8) == 24
+
+    def test_chars_for_tokens_custom_rate(self):
+        assert chars_for_tokens(5, chars_per_token=4) == 20
+        assert chars_for_tokens(5, chars_per_token=0) == 5
+
+    def test_round_trip_is_exact(self):
+        for tokens in range(0, 60):
+            assert tokens_for_chars(chars_for_tokens(tokens)) == tokens
+
+    def test_char_round_trip_never_shrinks(self):
+        for chars in (0, 1, 2, 3, 7, 100, 1000):
+            assert chars_for_tokens(tokens_for_chars(chars)) >= chars
+
+    def test_matches_estimate_tokens_for_ascii(self):
+        for text in (
+            "",
+            "a",
+            "abcd",
+            "public class Demo {}",
+            "def run():\n    return 1\n",
+            " " * 17,
+            "{}();,",
+        ):
+            assert tokens_for_chars(len(text)) == estimate_tokens(text)
+
+    def test_large_conversion(self):
+        assert tokens_for_chars(30000) == 10000
+        assert chars_for_tokens(10000) == 30000
+
+    def test_deterministic(self):
+        assert len({tokens_for_chars(12345) for _ in range(5)}) == 1
+        assert len({chars_for_tokens(1234) for _ in range(5)}) == 1
+
+    def test_strings_are_not_modified(self):
+        text = "public class A {}"
+        before = str(text)
+        tokens_for_chars(len(text))
+        chars_for_tokens(5)
+        assert text == before
+
+
+class TestBudgetFromTokens:
+    def test_without_arguments_matches_default_budget(self):
+        assert budget_from_tokens() == ContextBudget()
+
+    def test_returns_a_context_budget(self):
+        assert isinstance(budget_from_tokens(), ContextBudget)
+
+    def test_file_tokens_convert_to_file_chars(self):
+        budget = budget_from_tokens(max_file_tokens=8000)
+        assert budget.max_file_chars == 24000
+        assert budget.max_related_chars == DEFAULT_BUDGET.max_related_chars
+
+    def test_total_tokens_convert_to_total_chars(self):
+        budget = budget_from_tokens(max_total_tokens=24000)
+        assert budget.max_total_chars == 72000
+
+    def test_related_and_item_tokens_convert(self):
+        budget = budget_from_tokens(
+            max_related_tokens=4000, max_item_tokens=2000
+        )
+        assert budget.max_related_chars == 12000
+        assert budget.max_item_chars == 6000
+
+    def test_min_file_tokens_convert(self):
+        budget = budget_from_tokens(min_file_tokens=1000)
+        assert budget.min_file_chars == 3000
+
+    def test_all_limits_together(self):
+        budget = budget_from_tokens(
+            max_file_tokens=1000,
+            max_total_tokens=2000,
+            max_related_tokens=500,
+            max_item_tokens=100,
+            min_file_tokens=50,
+        )
+        assert budget.max_file_chars == 3000
+        assert budget.max_total_chars == 6000
+        assert budget.max_related_chars == 1500
+        assert budget.max_item_chars == 300
+        assert budget.min_file_chars == 150
+
+    def test_unspecified_limits_stay_from_the_base(self):
+        base = ContextBudget(
+            keep_changed_code=False,
+            allow_nested_header_only=False,
+            max_total_chars=1234,
+        )
+        budget = budget_from_tokens(max_file_tokens=1000, base=base)
+        assert budget.max_file_chars == 3000
+        assert budget.max_total_chars == 1234
+        assert budget.keep_changed_code is False
+        assert budget.allow_nested_header_only is False
+
+    def test_custom_rate(self):
+        budget = budget_from_tokens(max_file_tokens=1000, chars_per_token=4)
+        assert budget.max_file_chars == 4000
+
+    def test_negative_tokens_become_zero(self):
+        budget = budget_from_tokens(
+            max_file_tokens=-5, max_total_tokens=-1
+        )
+        assert budget.max_file_chars == 0
+        assert budget.max_total_chars == 0
+
+    def test_base_is_not_modified(self):
+        base = ContextBudget()
+        before = base.model_dump()
+        budget_from_tokens(max_file_tokens=1000, base=base)
+        assert base.model_dump() == before
+
+    def test_result_feeds_the_single_file_controller(self):
+        method = make_method(code="abc")
+        item = make_item("helper", start=2, end=2, code="h" * 60)
+        context = make_context(methods=[method], related=[item])
+        budget = budget_from_tokens(max_file_tokens=20)
+        assert budget.max_file_chars == 60
+        result = apply_context_budget(context, budget)
+        assert result.related_code == []
+        assert [m.code for m in result.methods] == ["abc"]
+
+    def test_result_feeds_plan_file_budgets(self):
+        budget = budget_from_tokens(max_total_tokens=10000)
+        plans = plan_file_budgets([1, 1], budget)
+        assert len(plans) == 2
+        assert sum(plan.max_file_chars for plan in plans) <= 30000
+
+    def test_result_feeds_the_multi_file_controller(self):
+        low = make_file_with_items("a/A.java", ["low1", "low2"])
+        high = make_heavy_file("b/B.java")
+        budget = budget_from_tokens(
+            max_total_tokens=200, base=multi_budget(min_file_chars=0)
+        )
+        results = apply_context_budget_to_files([low, high], budget)
+        assert [f.file_diff.path for f in results] == ["a/A.java", "b/B.java"]
+        for file_context in results:
+            assert file_context.stats.estimated_tokens == measure_context(
+                file_context
+            ).estimated_tokens
+
+    def test_ascii_context_fits_the_token_cap(self):
+        method = make_method(code="abc")
+        item = make_item("helper", start=2, end=2, code="h" * 60)
+        context = make_context(methods=[method], related=[item])
+        budget = budget_from_tokens(max_file_tokens=20)
+        result = apply_context_budget(context, budget)
+        assert measure_context(result).estimated_tokens <= 20
+
+    def test_estimator_and_stats_stay_consistent(self):
+        context = make_context(
+            methods=[make_method()], related=[make_item("helper", start=2, end=2)]
+        )
+        result = apply_context_budget(
+            context, budget_from_tokens(max_file_tokens=1000)
+        )
+        assert result.stats.estimated_tokens == measure_context(
+            result
+        ).estimated_tokens
+
+
+class TestTokenControlScenarios:
+    def test_english_text(self):
+        assert estimate_tokens("public class A") == 5
+        assert estimate_tokens("hello world!") == 4
+
+    def test_chinese_text(self):
+        assert estimate_tokens("中文") == 2
+        assert estimate_tokens("代码审查") == 4
+
+    def test_java_code(self):
+        text = "public class Demo {\n    void run() {}\n}\n"
+        assert estimate_tokens(text) == (len(text) + 2) // 3
+
+    def test_python_code(self):
+        text = "def run():\n    return 1\n"
+        assert estimate_tokens(text) == (len(text) + 2) // 3
+
+    def test_mixed_language(self):
+        text = "int count = 0; // 计数器"
+        cjk = 3
+        assert estimate_tokens(text) == (len(text) - cjk + 2) // 3 + cjk
+
+    def test_whitespace_and_punctuation(self):
+        assert estimate_tokens("    ") == 2
+        assert estimate_tokens("\t\n") == 1
+        assert estimate_tokens("{}();,") == 2
+
+    def test_empty_and_tiny(self):
+        assert estimate_tokens("") == 0
+        assert estimate_tokens(None) == 0
+        assert estimate_tokens("a") == 1
+        assert estimate_tokens("中") == 1
+
+    def test_large_text(self):
+        assert estimate_tokens("x" * 30000) == 10000
+        assert estimate_tokens("中" * 3000) == 3000
+
+    def test_boundary_between_ceil_steps(self):
+        assert estimate_tokens("x" * 3) == 1
+        assert estimate_tokens("x" * 4) == 2
+
+    def test_deterministic_repeats(self):
+        text = "混合 mixed 代码 code"
+        assert len({estimate_tokens(text) for _ in range(10)}) == 1
+
+
+class TestTokenControlBoundary:
+    def test_token_api_is_available(self):
+        from app.context import context_size_controller as module
+
+        for name in (
+            "estimate_tokens",
+            "tokens_for_chars",
+            "chars_for_tokens",
+            "budget_from_tokens",
+        ):
+            assert callable(getattr(module, name))
+
+    def test_no_tokenizer_sdk_is_used(self):
+        from app.context import context_size_controller as module
+
+        for name in ("tiktoken", "tokenizers", "transformers", "sentencepiece"):
+            assert name not in module.__dict__
+            assert not hasattr(module, name)
+
+    def test_no_pr_or_llm_integration(self):
+        from app.context import context_size_controller as module
+
+        for name in (
+            "fetch_pr",
+            "PrContext",
+            "CodeContextBuilder",
+            "build_code_context",
+            "chat",
+            "invoke",
+        ):
+            assert not hasattr(module, name)
+
+    def test_module_imports_are_local(self):
+        from app.context import context_size_controller as module
+
+        source = module.__dict__
+        for forbidden in ("httpx", "requests", "openai", "langchain", "langgraph"):
+            assert forbidden not in source
+
+    def test_token_conversion_does_not_modify_the_base_budget(self):
+        base = ContextBudget()
+        before = base.model_dump()
+        budget_from_tokens(
+            max_file_tokens=1,
+            max_total_tokens=1,
+            base=base,
+        )
+        assert base.model_dump() == before
+
+    def test_original_context_is_unchanged_by_a_token_budget(self):
+        method = make_method(code="abc")
+        item = make_item("helper", start=2, end=2, code="h" * 60)
+        context = make_context(methods=[method], related=[item])
+        before = context.model_dump()
+        apply_context_budget(context, budget_from_tokens(max_file_tokens=20))
+        assert context.model_dump() == before
+        assert context.stats is None
+        assert context.truncation is None
