@@ -605,11 +605,16 @@ class TestPhaseBoundary:
         assert context.enclosing_class is None
         assert context.snippets == []
 
-    def test_size_control_models_do_not_exist(self):
+    def test_size_control_is_not_applied_by_this_builder(self):
         import app.schemas.code_context as schema
 
-        assert not hasattr(schema, "ContextStats")
-        assert not hasattr(schema, "Truncation")
+        assert hasattr(schema, "ContextBudget")
+        assert hasattr(schema, "ContextStats")
+        assert hasattr(schema, "Truncation")
+
+        context = build_file_context(modified_diff(), make_content())
+        assert context.stats is None
+        assert context.truncation is None
 
     def test_builder_exposes_only_file_context_api(self):
         public = [

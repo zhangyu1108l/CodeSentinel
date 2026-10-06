@@ -8,6 +8,8 @@ from app.schemas.code_context import (
     ClassContext,
     CodeContext,
     CodeSnippet,
+    ContextBudget,
+    ContextStats,
     DiffLine,
     DiffLineKind,
     FileContent,
@@ -25,6 +27,7 @@ from app.schemas.code_context import (
     SymbolKind,
     SymbolRef,
     SymbolSource,
+    Truncation,
     TypeKind,
 )
 
@@ -97,6 +100,39 @@ def make_related_code(**overrides):
     }
     data.update(overrides)
     return RelatedCodeContext(**data)
+
+
+def make_context_budget(**overrides):
+    data = {}
+    data.update(overrides)
+    return ContextBudget(**data)
+
+
+def make_context_stats(**overrides):
+    data = {
+        "prompt_chars": 12000,
+        "prompt_chars_by_kind": {"diff": 2000, "changed_methods": 3000, "related": 7000},
+        "estimated_tokens": 3400,
+        "related_total": 8,
+        "related_kept": 6,
+        "related_dropped": 2,
+        "truncated_items": 1,
+        "retained_source_chars": 40000,
+    }
+    data.update(overrides)
+    return ContextStats(**data)
+
+
+def make_truncation(**overrides):
+    data = {
+        "applied": True,
+        "reasons": ["related budget exceeded"],
+        "dropped_items": ["related:NESTED_TYPE:Nested (20-45)"],
+        "trimmed_items": ["related:METHOD:helper (10-30 -> 10-14)"],
+        "removed_chars": 1500,
+    }
+    data.update(overrides)
+    return Truncation(**data)
 
 
 def make_hunk(**overrides):
@@ -455,6 +491,17 @@ class TestMethodContext:
         method = make_method_context(enclosing_class=None)
         assert method.enclosing_class is None
 
+    def test_truncated_defaults_to_false(self):
+        assert make_method_context().truncated is False
+
+    def test_truncated_can_be_set(self):
+        assert make_method_context(truncated=True).truncated is True
+
+    def test_existing_construction_still_works(self):
+        method = MethodContext(name="run", start_line=1, end_line=2)
+        assert method.truncated is False
+        assert method.changed_ranges == []
+
 
 class TestClassContext:
     def test_required_fields(self):
@@ -492,6 +539,17 @@ class TestClassContext:
 
     def test_nested_depth(self):
         assert make_class_context(depth=2).depth == 2
+
+    def test_header_end_line_defaults_to_zero(self):
+        assert make_class_context().header_end_line == 0
+
+    def test_header_end_line_can_be_set(self):
+        assert make_class_context(header_end_line=7).header_end_line == 7
+
+    def test_existing_construction_still_works(self):
+        context = ClassContext(name="Repo", start_line=1, end_line=3)
+        assert context.header_end_line == 0
+        assert context.depth == 0
 
     def test_confidence_out_of_range(self):
         with pytest.raises(ValidationError):
@@ -558,6 +616,24 @@ class TestRelatedCodeContext:
         item = make_related_code(reason=RelatedReason.MEMBER_OF_CHANGED_CLASS)
         assert item.reason is RelatedReason.MEMBER_OF_CHANGED_CLASS
 
+    def test_truncated_defaults_to_false(self):
+        assert make_related_code().truncated is False
+
+    def test_truncated_can_be_set(self):
+        item = make_related_code(truncated=True)
+        assert item.truncated is True
+
+    def test_existing_construction_still_works(self):
+        item = RelatedCodeContext(
+            path="a/A.java",
+            name="helper",
+            start_line=1,
+            end_line=2,
+            reason=RelatedReason.SIBLING_OF_CHANGED_METHOD,
+        )
+        assert item.truncated is False
+        assert item.kind is RelatedKind.METHOD
+
     def test_invalid_kind(self):
         with pytest.raises(ValidationError):
             make_related_code(kind="IMPORT")
@@ -584,6 +660,154 @@ class TestRelatedCodeContext:
         assert data["kind"] == "NESTED_TYPE"
         assert data["reason"] == "MEMBER_OF_CHANGED_CLASS"
         assert data["source"] == "HEURISTIC"
+
+
+class TestContextBudget:
+    def test_defaults(self):
+        budget = ContextBudget()
+        assert budget.max_item_chars == 6000
+        assert budget.max_related_chars == 12000
+        assert budget.max_file_chars == 24000
+        assert budget.max_total_chars is None
+        assert budget.min_file_chars == 4000
+        assert budget.keep_changed_code is True
+        assert budget.allow_nested_header_only is True
+
+    def test_overrides(self):
+        budget = ContextBudget(
+            max_item_chars=1000,
+            max_related_chars=2000,
+            max_file_chars=3000,
+            max_total_chars=9000,
+            min_file_chars=500,
+            keep_changed_code=False,
+            allow_nested_header_only=False,
+        )
+        assert budget.max_total_chars == 9000
+        assert budget.keep_changed_code is False
+        assert budget.allow_nested_header_only is False
+
+    def test_zero_limits_are_allowed(self):
+        budget = ContextBudget(
+            max_item_chars=0, max_related_chars=0, max_file_chars=0, min_file_chars=0
+        )
+        assert budget.max_item_chars == 0
+
+    def test_negative_limits_are_rejected(self):
+        with pytest.raises(ValidationError):
+            ContextBudget(max_item_chars=-1)
+        with pytest.raises(ValidationError):
+            ContextBudget(max_related_chars=-1)
+        with pytest.raises(ValidationError):
+            ContextBudget(max_file_chars=-1)
+        with pytest.raises(ValidationError):
+            ContextBudget(min_file_chars=-1)
+
+    def test_bool_fields_require_bool(self):
+        with pytest.raises(ValidationError):
+            ContextBudget(keep_changed_code="maybe")
+        with pytest.raises(ValidationError):
+            ContextBudget(allow_nested_header_only="maybe")
+
+    def test_round_trip_model_validate(self):
+        budget = make_context_budget(max_total_chars=48000)
+        assert ContextBudget.model_validate(budget.model_dump()) == budget
+
+    def test_json_dump(self):
+        data = ContextBudget().model_dump(mode="json")
+        assert data["max_file_chars"] == 24000
+        assert data["max_total_chars"] is None
+
+
+class TestContextStats:
+    def test_defaults(self):
+        stats = ContextStats()
+        assert stats.prompt_chars == 0
+        assert stats.prompt_chars_by_kind == {}
+        assert stats.estimated_tokens == 0
+        assert stats.related_total == 0
+        assert stats.related_kept == 0
+        assert stats.related_dropped == 0
+        assert stats.truncated_items == 0
+        assert stats.retained_source_chars == 0
+
+    def test_default_dict_is_not_shared(self):
+        first = ContextStats()
+        second = ContextStats()
+        first.prompt_chars_by_kind["diff"] = 1
+        assert second.prompt_chars_by_kind == {}
+
+    def test_full_construction(self):
+        stats = make_context_stats()
+        assert stats.prompt_chars == 12000
+        assert stats.prompt_chars_by_kind["related"] == 7000
+        assert stats.estimated_tokens == 3400
+        assert (stats.related_total, stats.related_kept, stats.related_dropped) == (
+            8,
+            6,
+            2,
+        )
+        assert stats.truncated_items == 1
+        assert stats.retained_source_chars == 40000
+
+    def test_negative_values_are_rejected(self):
+        with pytest.raises(ValidationError):
+            ContextStats(prompt_chars=-1)
+        with pytest.raises(ValidationError):
+            ContextStats(estimated_tokens=-1)
+        with pytest.raises(ValidationError):
+            ContextStats(related_dropped=-1)
+        with pytest.raises(ValidationError):
+            ContextStats(retained_source_chars=-1)
+
+    def test_round_trip_model_validate(self):
+        stats = make_context_stats()
+        assert ContextStats.model_validate(stats.model_dump()) == stats
+
+    def test_json_dump(self):
+        data = make_context_stats().model_dump(mode="json")
+        assert data["prompt_chars_by_kind"]["diff"] == 2000
+
+
+class TestTruncation:
+    def test_defaults(self):
+        truncation = Truncation()
+        assert truncation.applied is False
+        assert truncation.reasons == []
+        assert truncation.dropped_items == []
+        assert truncation.trimmed_items == []
+        assert truncation.removed_chars == 0
+
+    def test_default_lists_are_not_shared(self):
+        first = Truncation()
+        second = Truncation()
+        first.reasons.append("r")
+        first.dropped_items.append("d")
+        first.trimmed_items.append("t")
+        assert second.reasons == []
+        assert second.dropped_items == []
+        assert second.trimmed_items == []
+
+    def test_full_construction(self):
+        truncation = make_truncation()
+        assert truncation.applied is True
+        assert truncation.reasons == ["related budget exceeded"]
+        assert truncation.dropped_items == ["related:NESTED_TYPE:Nested (20-45)"]
+        assert truncation.trimmed_items == ["related:METHOD:helper (10-30 -> 10-14)"]
+        assert truncation.removed_chars == 1500
+
+    def test_negative_removed_chars_is_rejected(self):
+        with pytest.raises(ValidationError):
+            Truncation(removed_chars=-1)
+
+    def test_round_trip_model_validate(self):
+        truncation = make_truncation()
+        assert Truncation.model_validate(truncation.model_dump()) == truncation
+
+    def test_json_dump(self):
+        data = make_truncation().model_dump(mode="json")
+        assert data["applied"] is True
+        assert data["reasons"] == ["related budget exceeded"]
 
 
 class TestFileStructure:
@@ -745,6 +969,20 @@ class TestFileContext:
         assert context.snippets == []
         assert context.skipped_reason is None
         assert context.notes == []
+        assert context.stats is None
+        assert context.truncation is None
+
+    def test_with_budget_metadata(self):
+        context = make_file_context(
+            stats=make_context_stats(), truncation=make_truncation()
+        )
+        assert context.stats.prompt_chars == 12000
+        assert context.truncation.applied is True
+        restored = FileContext.model_validate(context.model_dump(mode="json"))
+        assert restored.stats.estimated_tokens == 3400
+        assert restored.truncation.dropped_items == [
+            "related:NESTED_TYPE:Nested (20-45)"
+        ]
 
     def test_default_method_list_is_not_shared(self):
         first = make_file_context()
@@ -902,6 +1140,20 @@ class TestCodeContext:
         assert context.head_sha is None
         assert context.files == []
         assert context.notes == []
+        assert context.stats is None
+        assert context.truncation is None
+
+    def test_with_budget_metadata(self):
+        context = CodeContext(
+            repository="owner/repo",
+            pr_number=42,
+            stats=make_context_stats(),
+            truncation=make_truncation(),
+        )
+        restored = CodeContext.model_validate(context.model_dump(mode="json"))
+        assert restored.stats.prompt_chars == 12000
+        assert restored.truncation.applied is True
+        assert restored.truncation.removed_chars == 1500
 
     def test_default_file_list_is_not_shared(self):
         first = CodeContext(repository="owner/repo", pr_number=1)

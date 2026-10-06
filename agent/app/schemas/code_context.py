@@ -141,6 +141,7 @@ class MethodContext(BaseModel):
     code: str = ""
     source: SymbolSource = SymbolSource.HEURISTIC
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    truncated: bool = False
     changed_ranges: list[ChangedRange] = Field(default_factory=list)
 
 
@@ -152,11 +153,15 @@ class ClassContext(BaseModel):
     brace for Java and the last indented line for Python. code is the
     literal slice of those lines. depth counts how many other types in the
     same file enclose this one, so 0 means a top level declaration.
+    header_end_line is the last line of the declaration header, or 0 while
+    it has not been recorded; 1-based lines are never 0, so 0 is an
+    unambiguous "unknown" marker.
     """
 
     name: str
     start_line: int
     end_line: int
+    header_end_line: int = 0
     kind: TypeKind = TypeKind.CLASS
     language: Language = Language.OTHER
     depth: int = 0
@@ -206,6 +211,55 @@ class RelatedCodeContext(BaseModel):
     code: str = ""
     source: SymbolSource = SymbolSource.HEURISTIC
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    truncated: bool = False
+
+
+class ContextBudget(BaseModel):
+    """Size limits applied before a Code Context is handed to a prompt.
+
+    Defaults are derived from real measurements in this repository: the
+    largest observed related-code payload for one file was about 11500
+    characters and the largest single item about 2300, so the defaults
+    almost never trim normal code while still capping pathological input.
+    max_total_chars stays None until a caller spans several files.
+    """
+
+    max_item_chars: int = Field(default=6000, ge=0)
+    max_related_chars: int = Field(default=12000, ge=0)
+    max_file_chars: int = Field(default=24000, ge=0)
+    max_total_chars: int | None = None
+    min_file_chars: int = Field(default=4000, ge=0)
+    keep_changed_code: bool = True
+    allow_nested_header_only: bool = True
+
+
+class ContextStats(BaseModel):
+    """Measured size of one context, split by what would be sent.
+
+    prompt_chars counts only what a prompt may carry: diff, changed method
+    code, related code and metadata. retained_source_chars reports the
+    source kept in memory for later snippet building, which is never sent
+    and therefore never budgeted.
+    """
+
+    prompt_chars: int = Field(default=0, ge=0)
+    prompt_chars_by_kind: dict[str, int] = Field(default_factory=dict)
+    estimated_tokens: int = Field(default=0, ge=0)
+    related_total: int = Field(default=0, ge=0)
+    related_kept: int = Field(default=0, ge=0)
+    related_dropped: int = Field(default=0, ge=0)
+    truncated_items: int = Field(default=0, ge=0)
+    retained_source_chars: int = Field(default=0, ge=0)
+
+
+class Truncation(BaseModel):
+    """What a budget removed and why, so nothing is dropped silently."""
+
+    applied: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    dropped_items: list[str] = Field(default_factory=list)
+    trimmed_items: list[str] = Field(default_factory=list)
+    removed_chars: int = Field(default=0, ge=0)
 
 
 class FileStructure(BaseModel):
@@ -291,6 +345,8 @@ class FileContext(BaseModel):
     snippets: list[CodeSnippet] = Field(default_factory=list)
     skipped_reason: str | None = None
     notes: list[str] = Field(default_factory=list)
+    stats: ContextStats | None = None
+    truncation: Truncation | None = None
 
 
 class CodeContext(BaseModel):
@@ -302,3 +358,5 @@ class CodeContext(BaseModel):
     head_sha: str | None = None
     files: list[FileContext] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    stats: ContextStats | None = None
+    truncation: Truncation | None = None
