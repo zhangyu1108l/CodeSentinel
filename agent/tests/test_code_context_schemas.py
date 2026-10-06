@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.schemas.code_context import (
     ChangedRange,
+    ClassContext,
     CodeContext,
     CodeSnippet,
     DiffLine,
@@ -21,6 +22,7 @@ from app.schemas.code_context import (
     SymbolKind,
     SymbolRef,
     SymbolSource,
+    TypeKind,
 )
 
 HUNK_HEADER = "@@ -48,3 +48,4 @@"
@@ -58,6 +60,23 @@ def make_method_context(**overrides):
     }
     data.update(overrides)
     return MethodContext(**data)
+
+
+def make_class_context(**overrides):
+    data = {
+        "name": "UserRepository",
+        "start_line": 5,
+        "end_line": 43,
+        "kind": TypeKind.CLASS,
+        "language": Language.JAVA,
+        "depth": 0,
+        "signature": "public class UserRepository",
+        "code": "public class UserRepository {\n}",
+        "source": SymbolSource.HEURISTIC,
+        "confidence": 0.9,
+    }
+    data.update(overrides)
+    return ClassContext(**data)
 
 
 def make_hunk(**overrides):
@@ -148,6 +167,19 @@ class TestEnums:
             "METHOD",
             "FUNCTION",
         }
+
+    def test_type_kind_values(self):
+        assert {item.value for item in TypeKind} == {
+            "CLASS",
+            "INTERFACE",
+            "ENUM",
+            "RECORD",
+            "ANNOTATION_TYPE",
+        }
+
+    def test_invalid_type_kind(self):
+        with pytest.raises(ValueError):
+            TypeKind("TRAIT")
 
     def test_symbol_source_values(self):
         assert {item.value for item in SymbolSource} == {"AST", "HEURISTIC"}
@@ -374,6 +406,73 @@ class TestMethodContext:
         method = make_method_context()
         assert MethodContext.model_validate(method.model_dump()) == method
 
+    def test_enclosing_class_defaults_to_none(self):
+        assert make_method_context().enclosing_class is None
+
+    def test_enclosing_class_can_be_set(self):
+        method = make_method_context(enclosing_class="UserRepository")
+        assert method.enclosing_class == "UserRepository"
+
+    def test_enclosing_class_accepts_none(self):
+        method = make_method_context(enclosing_class=None)
+        assert method.enclosing_class is None
+
+
+class TestClassContext:
+    def test_required_fields(self):
+        for missing in ("name", "start_line", "end_line"):
+            data = {"name": "Repo", "start_line": 1, "end_line": 3}
+            del data[missing]
+            with pytest.raises(ValidationError):
+                ClassContext(**data)
+
+    def test_defaults(self):
+        context = ClassContext(name="Repo", start_line=1, end_line=3)
+        assert context.kind is TypeKind.CLASS
+        assert context.language is Language.OTHER
+        assert context.depth == 0
+        assert context.signature == ""
+        assert context.code == ""
+        assert context.source is SymbolSource.HEURISTIC
+        assert context.confidence == 0.0
+
+    def test_full_construction(self):
+        context = make_class_context()
+        assert context.name == "UserRepository"
+        assert (context.start_line, context.end_line) == (5, 43)
+        assert context.kind is TypeKind.CLASS
+        assert context.language is Language.JAVA
+        assert context.confidence == 0.9
+
+    def test_type_kinds(self):
+        for kind in TypeKind:
+            assert make_class_context(kind=kind).kind is kind
+
+    def test_invalid_kind(self):
+        with pytest.raises(ValidationError):
+            make_class_context(kind="TRAIT")
+
+    def test_nested_depth(self):
+        assert make_class_context(depth=2).depth == 2
+
+    def test_confidence_out_of_range(self):
+        with pytest.raises(ValidationError):
+            make_class_context(confidence=1.5)
+        with pytest.raises(ValidationError):
+            make_class_context(confidence=-0.1)
+
+    def test_round_trip_model_validate(self):
+        context = make_class_context()
+        assert ClassContext.model_validate(context.model_dump()) == context
+
+    def test_json_dump_uses_string_enums(self):
+        data = make_class_context(
+            kind=TypeKind.INTERFACE, language=Language.JAVA
+        ).model_dump(mode="json")
+        assert data["kind"] == "INTERFACE"
+        assert data["language"] == "JAVA"
+        assert data["source"] == "HEURISTIC"
+
 
 class TestFileStructure:
     def test_defaults(self):
@@ -528,6 +627,7 @@ class TestFileContext:
         assert context.content_available is False
         assert context.changed_symbols == []
         assert context.methods == []
+        assert context.classes == []
         assert context.enclosing_class is None
         assert context.snippets == []
         assert context.skipped_reason is None
@@ -555,6 +655,28 @@ class TestFileContext:
         assert context.changed_symbols[0].name == "findById"
         assert context.enclosing_class is None
         assert context.structure is None
+
+    def test_default_class_list_is_not_shared(self):
+        first = make_file_context()
+        second = make_file_context()
+        first.classes.append(make_class_context())
+        assert second.classes == []
+
+    def test_with_classes_and_linked_method(self):
+        context = make_file_context(
+            classes=[make_class_context(), make_class_context(name="Nested", depth=1)],
+            methods=[make_method_context(enclosing_class="Nested")],
+            enclosing_class="Nested",
+            content_available=True,
+            line_count=43,
+        )
+        assert [item.name for item in context.classes] == [
+            "UserRepository",
+            "Nested",
+        ]
+        assert [item.depth for item in context.classes] == [0, 1]
+        assert context.methods[0].enclosing_class == "Nested"
+        assert context.enclosing_class == "Nested"
 
     def test_nested_file_diff(self):
         context = make_file_context()
@@ -704,6 +826,28 @@ class TestCodeContext:
         assert method.language is Language.JAVA
         assert method.source is SymbolSource.HEURISTIC
         assert method.changed_ranges == [ChangedRange(start_line=16, end_line=16)]
+
+    def test_round_trip_with_classes(self):
+        context = make_code_context(
+            files=[
+                make_file_context(
+                    classes=[make_class_context()],
+                    methods=[make_method_context(enclosing_class="UserRepository")],
+                    enclosing_class="UserRepository",
+                    content_available=True,
+                    line_count=43,
+                )
+            ]
+        )
+        restored = CodeContext.model_validate(context.model_dump(mode="json"))
+        file_context = restored.files[0]
+        assert file_context.enclosing_class == "UserRepository"
+        assert file_context.classes[0].kind is TypeKind.CLASS
+        assert file_context.classes[0].language is Language.JAVA
+        assert file_context.methods[0].enclosing_class == "UserRepository"
+        assert file_context.methods[0].changed_ranges == [
+            ChangedRange(start_line=16, end_line=16)
+        ]
 
     def test_json_dump_uses_string_enums(self):
         data = make_code_context().model_dump(mode="json")

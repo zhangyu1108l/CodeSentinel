@@ -40,6 +40,21 @@ class SymbolKind(str, Enum):
     FUNCTION = "FUNCTION"
 
 
+class TypeKind(str, Enum):
+    """Kind of a type declaration.
+
+    Java distinguishes class, interface, enum, record and annotation type;
+    Python only has class. An abstract class stays CLASS because abstract
+    is a modifier, visible in signature, not a different kind of type.
+    """
+
+    CLASS = "CLASS"
+    INTERFACE = "INTERFACE"
+    ENUM = "ENUM"
+    RECORD = "RECORD"
+    ANNOTATION_TYPE = "ANNOTATION_TYPE"
+
+
 class SymbolSource(str, Enum):
     """How a symbol location was determined.
 
@@ -110,6 +125,10 @@ class MethodContext(BaseModel):
     code carries the exact source slice so later phases do not need the
     whole file again. confidence reflects how the location was derived,
     never how serious a finding is.
+
+    enclosing_class is the nearest named type around the declaration, and
+    stays None for a top level function and for a method declared inside
+    an anonymous class, which is not attributed to the surrounding type.
     """
 
     name: str
@@ -117,11 +136,34 @@ class MethodContext(BaseModel):
     end_line: int
     kind: SymbolKind = SymbolKind.METHOD
     language: Language = Language.OTHER
+    enclosing_class: str | None = None
     signature: str = ""
     code: str = ""
     source: SymbolSource = SymbolSource.HEURISTIC
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     changed_ranges: list[ChangedRange] = Field(default_factory=list)
+
+
+class ClassContext(BaseModel):
+    """One type declaration and the exact source it covers.
+
+    Ranges follow the same rules as MethodContext: 1-based, start_line
+    includes leading annotations or decorators, end_line is the closing
+    brace for Java and the last indented line for Python. code is the
+    literal slice of those lines. depth counts how many other types in the
+    same file enclose this one, so 0 means a top level declaration.
+    """
+
+    name: str
+    start_line: int
+    end_line: int
+    kind: TypeKind = TypeKind.CLASS
+    language: Language = Language.OTHER
+    depth: int = 0
+    signature: str = ""
+    code: str = ""
+    source: SymbolSource = SymbolSource.HEURISTIC
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class FileStructure(BaseModel):
@@ -186,7 +228,11 @@ class FileContext(BaseModel):
     content is available; skipped_reason explains why a file was not
     analyzed at all. line_count follows the Git line model and is the
     basis for locating symbols in later Phase 6 steps. methods holds one
-    entry per method or function hit by file_diff.changed_ranges.
+    entry per method or function hit by file_diff.changed_ranges, and
+    classes every type declaration found in the file. enclosing_class is
+    the unambiguous type around the changed methods, or around the whole
+    file when a single top level type is declared; it stays None whenever
+    that would be a guess.
     """
 
     file_diff: FileDiff
@@ -196,6 +242,7 @@ class FileContext(BaseModel):
     content_available: bool = False
     changed_symbols: list[SymbolRef] = Field(default_factory=list)
     methods: list[MethodContext] = Field(default_factory=list)
+    classes: list[ClassContext] = Field(default_factory=list)
     enclosing_class: str | None = None
     snippets: list[CodeSnippet] = Field(default_factory=list)
     skipped_reason: str | None = None

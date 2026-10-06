@@ -11,6 +11,9 @@ therefore heuristic, which is why every MethodContext carries source and
 confidence, and why every failure mode degrades to "no method found"
 instead of raising.
 
+The scanning primitives are shared with the Class Context builder and live
+in source_scanner, so both run on one masking and block strategy.
+
 Line numbers are 1-based and use the diff numbering of the head revision
 produced by diff_parser, so a MethodContext can be compared against
 changed_ranges directly. Content is untrusted user source code and must
@@ -20,6 +23,20 @@ never be written to logs.
 import re
 
 from app.context.file_context_builder import split_lines
+from app.context.source_scanner import (
+    MAX_DECLARATION_SCAN_LINES,
+    code_slice,
+    declaration_signature,
+    indent_width,
+    java_annotation_start,
+    java_body_end,
+    java_declaration_end,
+    mask_java,
+    mask_python,
+    python_block_end,
+    python_decorator_start,
+    python_header_end,
+)
 from app.schemas.code_context import (
     ChangedRange,
     FileContext,
@@ -36,14 +53,6 @@ CONFIDENCE_JAVA_DECLARATION = 0.6
 CONFIDENCE_PYTHON_BLOCK = 0.85
 
 NOTE_NO_METHOD_MATCH = "matched no method"
-
-_MAX_DECLARATION_SCAN_LINES = 200
-_MAX_BODY_SCAN_LINES = 5000
-_MAX_ANNOTATION_LINES = 10
-
-_CODE = "code"
-_BLOCK_COMMENT = "block_comment"
-_TEXT_BLOCK = "text_block"
 
 _JAVA_BLOCK_KEYWORDS = frozenset(
     {
@@ -127,12 +136,6 @@ _JAVA_WORD_RE = re.compile(r"[\w$]+")
 
 _JAVA_PARAMETER_RE = re.compile(r"[\w$.<>\[\]]+(?:\.\.\.)?[ \t]+[\w$]+$")
 
-_SIGNATURE_SPACING = (
-    (re.compile(r"\(\s+"), "("),
-    (re.compile(r"\s+\)"), ")"),
-    (re.compile(r"\s+,"), ","),
-)
-
 _PYTHON_DEF_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?P<async>async[ \t]+)?"
     r"def[ \t]+(?P<name>[A-Za-z_]\w*)[ \t]*\("
@@ -157,9 +160,9 @@ def find_methods(content: str, language: Language) -> list[MethodContext]:
         return []
 
     if language is Language.JAVA:
-        return _find_java_methods(lines, _mask_java(lines))
+        return _find_java_methods(lines, mask_java(lines))
 
-    masked, in_triple = _mask_python(lines)
+    masked, in_triple = mask_python(lines)
     return _find_python_methods(lines, masked, in_triple)
 
 
@@ -253,138 +256,6 @@ def attach_method_contexts(file_context: FileContext) -> FileContext:
     )
 
 
-def _mask_quoted(line: str, index: int, quote: str, out: list[str]) -> int:
-    index += 1
-    out.append(" ")
-    length = len(line)
-    while index < length:
-        char = line[index]
-        if char == "\\":
-            out.append("  ")
-            index += 2
-            continue
-        out.append(" ")
-        index += 1
-        if char == quote:
-            break
-    return index
-
-
-def _mask_java(lines: list[str]) -> list[str]:
-    """Blank out comments, string and char literals and text blocks.
-
-    Masked characters become spaces so columns, braces and parentheses
-    keep their original position while literals can no longer influence
-    brace depth or declaration matching.
-    """
-    masked: list[str] = []
-    state = _CODE
-
-    for line in lines:
-        out: list[str] = []
-        index = 0
-        length = len(line)
-        while index < length:
-            if state == _CODE:
-                if line.startswith('"""', index):
-                    state = _TEXT_BLOCK
-                    out.append("   ")
-                    index += 3
-                    continue
-                if line.startswith("//", index):
-                    out.append(" " * (length - index))
-                    index = length
-                    continue
-                if line.startswith("/*", index):
-                    state = _BLOCK_COMMENT
-                    out.append("  ")
-                    index += 2
-                    continue
-                char = line[index]
-                if char == '"' or char == "'":
-                    index = _mask_quoted(line, index, char, out)
-                    continue
-                out.append(char)
-                index += 1
-                continue
-
-            if state == _BLOCK_COMMENT:
-                if line.startswith("*/", index):
-                    state = _CODE
-                    out.append("  ")
-                    index += 2
-                    continue
-                out.append(" ")
-                index += 1
-                continue
-
-            if line.startswith('"""', index):
-                state = _CODE
-                out.append("   ")
-                index += 3
-                continue
-            out.append(" ")
-            index += 1
-
-        masked.append("".join(out))
-
-    return masked
-
-
-def _mask_python(lines: list[str]) -> tuple[list[str], list[bool]]:
-    """Blank out comments and strings, and flag triple quoted interiors.
-
-    in_triple tells whether a line starts inside a triple quoted string,
-    where indentation carries no block meaning and a line such as
-    "def example():" must not be read as a declaration.
-    """
-    masked: list[str] = []
-    in_triple: list[bool] = []
-    delimiter = ""
-
-    for line in lines:
-        in_triple.append(bool(delimiter))
-        out: list[str] = []
-        index = 0
-        length = len(line)
-        while index < length:
-            if delimiter:
-                if line.startswith(delimiter, index):
-                    delimiter = ""
-                    out.append("   ")
-                    index += 3
-                    continue
-                out.append(" ")
-                index += 1
-                continue
-
-            if line.startswith('"""', index):
-                delimiter = '"""'
-                out.append("   ")
-                index += 3
-                continue
-            if line.startswith("'''", index):
-                delimiter = "'''"
-                out.append("   ")
-                index += 3
-                continue
-
-            char = line[index]
-            if char == "#":
-                out.append(" " * (length - index))
-                index = length
-                continue
-            if char == '"' or char == "'":
-                index = _mask_quoted(line, index, char, out)
-                continue
-            out.append(char)
-            index += 1
-
-        masked.append("".join(out))
-
-    return masked, in_triple
-
-
 def _find_java_methods(lines: list[str], masked: list[str]) -> list[MethodContext]:
     depths = _java_depths(masked)
     methods: list[MethodContext] = []
@@ -413,15 +284,13 @@ def _find_java_methods(lines: list[str], masked: list[str]) -> list[MethodContex
         else:
             continue
 
-        declaration_end = _find_java_declaration_end(
-            masked, index, match.end() - 1
-        )
+        declaration_end = java_declaration_end(masked, index, match.end() - 1)
         if declaration_end is None:
             continue
         end_index, end_column, has_body = declaration_end
 
         if has_body:
-            body_end = _find_java_body_end(masked, end_index, end_column)
+            body_end = java_body_end(masked, end_index, end_column)
             if body_end is None:
                 continue
         elif depths[index] == 1:
@@ -430,7 +299,7 @@ def _find_java_methods(lines: list[str], masked: list[str]) -> list[MethodContex
         else:
             continue
 
-        start_index = _java_declaration_start(masked, index)
+        start_index = java_annotation_start(masked, index)
         methods.append(
             _make_method(
                 lines=lines,
@@ -461,80 +330,6 @@ def _java_depths(masked: list[str]) -> list[int]:
     return depths
 
 
-def _find_java_declaration_end(
-    masked: list[str], line_index: int, start_column: int
-) -> tuple[int, int, bool] | None:
-    """Locate the brace or semicolon that ends a Java signature.
-
-    Returns (line index, column, has body) or None when the declaration
-    never completes, which happens for truncated or malformed sources.
-    """
-    paren = 0
-    limit = min(len(masked), line_index + _MAX_DECLARATION_SCAN_LINES)
-
-    for index in range(line_index, limit):
-        text = masked[index]
-        column = start_column if index == line_index else 0
-        while column < len(text):
-            char = text[column]
-            if char == "(":
-                paren += 1
-            elif char == ")":
-                paren -= 1
-                if paren < 0:
-                    return None
-            elif paren == 0 and char == "{":
-                return index, column, True
-            elif paren == 0 and char == ";":
-                return index, column, False
-            column += 1
-
-    return None
-
-
-def _find_java_body_end(
-    masked: list[str], open_line: int, open_column: int
-) -> int | None:
-    depth = 0
-    limit = min(len(masked), open_line + _MAX_BODY_SCAN_LINES)
-
-    for index in range(open_line, limit):
-        text = masked[index]
-        column = open_column if index == open_line else 0
-        while column < len(text):
-            char = text[column]
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    return index
-            column += 1
-
-    return None
-
-
-def _java_declaration_start(masked: list[str], index: int) -> int:
-    """Extend a declaration upwards over its annotation block."""
-    candidate = index
-    limit = max(0, index - _MAX_ANNOTATION_LINES)
-
-    while candidate - 1 >= limit:
-        previous = masked[candidate - 1].strip()
-        if not previous:
-            break
-        if previous.startswith("@"):
-            window = "\n".join(masked[candidate - 1 : index])
-            if window.count("(") == window.count(")"):
-                return candidate - 1
-            break
-        if previous.endswith(("{", "}", ";")):
-            break
-        candidate -= 1
-
-    return index
-
-
 def _find_python_methods(
     lines: list[str], masked: list[str], in_triple: list[bool]
 ) -> list[MethodContext]:
@@ -547,14 +342,14 @@ def _find_python_methods(
         if match is None:
             continue
 
-        header_end = _find_python_header_end(masked, index)
+        header_end = python_header_end(masked, index)
         if header_end is None:
             continue
         header_index, header_column = header_end
 
-        indent = _indent_width(match.group("indent"))
-        end_index = _python_block_end(lines, in_triple, header_index, indent)
-        start_index = _python_declaration_start(lines, masked, in_triple, index)
+        indent = indent_width(match.group("indent"))
+        end_index = python_block_end(lines, in_triple, header_index, indent)
+        start_index = python_decorator_start(lines, masked, in_triple, index)
         methods.append(
             _make_method(
                 lines=lines,
@@ -583,8 +378,8 @@ def _python_symbol_kind(
 ) -> SymbolKind:
     """METHOD when the declaration sits in a class body, FUNCTION otherwise.
 
-    Only the nearest enclosing block header is inspected; no class symbol
-    is produced here because Class Context is a later phase.
+    Only the nearest enclosing block header is inspected. The class itself
+    is described by the Class Context builder, not here.
     """
     if indent == 0:
         return SymbolKind.FUNCTION
@@ -592,81 +387,13 @@ def _python_symbol_kind(
     for cursor in range(index - 1, -1, -1):
         if in_triple[cursor] or not masked[cursor].strip():
             continue
-        if _indent_width(lines[cursor]) >= indent:
+        if indent_width(lines[cursor]) >= indent:
             continue
         if _PYTHON_CLASS_RE.match(masked[cursor].strip()):
             return SymbolKind.METHOD
         return SymbolKind.FUNCTION
 
     return SymbolKind.FUNCTION
-
-
-def _find_python_header_end(
-    masked: list[str], line_index: int
-) -> tuple[int, int] | None:
-    """Find the colon that closes a def header, honoring parentheses."""
-    paren = 0
-    limit = min(len(masked), line_index + _MAX_DECLARATION_SCAN_LINES)
-
-    for index in range(line_index, limit):
-        for column, char in enumerate(masked[index]):
-            if char == "(":
-                paren += 1
-            elif char == ")":
-                paren -= 1
-                if paren < 0:
-                    return None
-            elif char == ":" and paren == 0:
-                return index, column
-
-    return None
-
-
-def _python_block_end(
-    lines: list[str], in_triple: list[bool], header_index: int, indent: int
-) -> int:
-    """Last line of an indented block.
-
-    Blank lines and lines inside a triple quoted string carry no block
-    meaning and are skipped, so a docstring line at column zero cannot
-    terminate the block. Comment lines do belong to the block.
-    """
-    last_code = header_index
-
-    for index in range(header_index + 1, len(lines)):
-        if in_triple[index] or not lines[index].strip():
-            continue
-        if _indent_width(lines[index]) <= indent:
-            break
-        last_code = index
-
-    return last_code
-
-
-def _python_declaration_start(
-    lines: list[str], masked: list[str], in_triple: list[bool], index: int
-) -> int:
-    """Extend a declaration upwards over its decorator block."""
-    candidate = index
-    limit = max(0, index - _MAX_ANNOTATION_LINES)
-
-    while candidate - 1 >= limit:
-        previous = candidate - 1
-        if in_triple[previous]:
-            break
-        stripped = lines[previous].strip()
-        if not stripped:
-            break
-        if stripped.startswith("@"):
-            window = "\n".join(masked[previous:index])
-            if window.count("(") == window.count(")"):
-                return previous
-            break
-        if stripped.endswith(":"):
-            break
-        candidate -= 1
-
-    return index
 
 
 def _looks_like_parameter_list(
@@ -699,7 +426,7 @@ def _java_parameter_text(
     """Text between the outer parentheses of a declaration, or None."""
     paren = 0
     parts: list[str] = []
-    limit = min(len(lines), line_index + _MAX_DECLARATION_SCAN_LINES)
+    limit = min(len(lines), line_index + MAX_DECLARATION_SCAN_LINES)
 
     for index in range(line_index, limit):
         text = lines[index]
@@ -756,38 +483,23 @@ def _make_method(
     end_index: int,
     confidence: float,
 ) -> MethodContext:
-    end_column = signature_end_column + (1 if include_terminator else 0)
-    signature_parts = list(lines[decl_index:signature_end_index])
-    signature_parts.append(lines[signature_end_index][:end_column])
-
     return MethodContext(
         name=name,
         start_line=start_index + 1,
         end_line=end_index + 1,
         kind=kind,
         language=language,
-        signature=_normalize_signature(" ".join(signature_parts)),
-        code="\n".join(lines[start_index : end_index + 1]),
+        signature=declaration_signature(
+            lines,
+            decl_index,
+            signature_end_index,
+            signature_end_column,
+            include_terminator,
+        ),
+        code=code_slice(lines, start_index, end_index),
         source=SymbolSource.HEURISTIC,
         confidence=confidence,
     )
-
-
-def _indent_width(line: str) -> int:
-    stripped = line.lstrip(" \t")
-    return len(line[: len(line) - len(stripped)].expandtabs(8))
-
-
-def _collapse(text: str) -> str:
-    return " ".join(text.split())
-
-
-def _normalize_signature(text: str) -> str:
-    """Collapse a possibly multi line declaration into one clean line."""
-    normalized = _collapse(text)
-    for pattern, replacement in _SIGNATURE_SPACING:
-        normalized = pattern.sub(replacement, normalized)
-    return normalized.strip()
 
 
 def _overlaps(changed: ChangedRange, method: MethodContext) -> bool:
