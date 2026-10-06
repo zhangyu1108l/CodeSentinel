@@ -22,6 +22,7 @@ import re
 
 from app.context.file_context_builder import split_lines
 from app.context.source_scanner import (
+    JAVA_INLINE_ANNOTATION,
     code_slice,
     declaration_signature,
     indent_width,
@@ -59,8 +60,6 @@ _JAVA_MODIFIERS = (
     r"|non-sealed|strictfp)[ \t]+)*"
 )
 
-_JAVA_INLINE_ANNOTATION = r"(?:@(?!interface\b)[\w$.]+(?:\([^()]*\))?[ \t]+)*"
-
 _JAVA_TYPE_TAIL = (
     r"(?=[ \t]*(?:<[^;{}]*>)?[ \t]*"
     r"(?:\(|extends\b|implements\b|permits\b|\{|$))"
@@ -68,7 +67,7 @@ _JAVA_TYPE_TAIL = (
 
 _JAVA_TYPE_DECL_RE = re.compile(
     r"^[ \t]*"
-    + _JAVA_INLINE_ANNOTATION
+    + JAVA_INLINE_ANNOTATION
     + _JAVA_MODIFIERS
     + r"(?P<kind>@interface|class|interface|enum|record)"
     r"[ \t]+(?P<name>[\w$]+)"
@@ -132,6 +131,44 @@ def find_anonymous_regions(content: str, language: Language) -> list[tuple[int, 
     return regions
 
 
+def innermost_scope(
+    classes: list[ClassContext],
+    line: int,
+    anonymous_regions: list[tuple[int, int]] | None = None,
+) -> tuple[int, int, str | None, ClassContext | None] | None:
+    """Innermost scope around one line as (start, end, name, class).
+
+    The innermost scope wins, so a line of a nested type resolves to the
+    nested type and not to the outer one. An anonymous class body counts as
+    a scope without a name and without a ClassContext, which is how a
+    method inside one stays unattributed instead of being handed to the
+    surrounding named type.
+    """
+    best: tuple[int, int, str | None, ClassContext | None] | None = None
+
+    for item in classes:
+        if item.start_line <= line <= item.end_line:
+            best = _closer(
+                best, (item.start_line, item.end_line, item.name, item)
+            )
+
+    for start, end in anonymous_regions or []:
+        if start <= line <= end:
+            best = _closer(best, (start, end, None, None))
+
+    return best
+
+
+def innermost_class(
+    classes: list[ClassContext],
+    line: int,
+    anonymous_regions: list[tuple[int, int]] | None = None,
+) -> ClassContext | None:
+    """Named type directly enclosing one line, None inside anonymous bodies."""
+    scope = innermost_scope(classes, line, anonymous_regions)
+    return None if scope is None else scope[3]
+
+
 def enclosing_class_name(
     classes: list[ClassContext],
     method: MethodContext,
@@ -144,18 +181,8 @@ def enclosing_class_name(
     as a scope without a name, which yields None instead of attributing
     the method to the surrounding named type.
     """
-    line = method.start_line
-    best: tuple[int, int, str | None] | None = None
-
-    for item in classes:
-        if item.start_line <= line <= item.end_line:
-            best = _innermost(best, item.start_line, item.end_line, item.name)
-
-    for start, end in anonymous_regions or []:
-        if start <= line <= end:
-            best = _innermost(best, start, end, None)
-
-    return None if best is None else best[2]
+    scope = innermost_scope(classes, method.start_line, anonymous_regions)
+    return None if scope is None else scope[2]
 
 
 def build_class_contexts(file_context: FileContext) -> list[ClassContext]:
@@ -230,16 +257,16 @@ def _resolve_enclosing_class(
     return None
 
 
-def _innermost(
-    best: tuple[int, int, str | None] | None,
-    start: int,
-    end: int,
-    name: str | None,
-) -> tuple[int, int, str | None]:
+def _closer(
+    best: tuple[int, int, str | None, ClassContext | None] | None,
+    candidate: tuple[int, int, str | None, ClassContext | None],
+) -> tuple[int, int, str | None, ClassContext | None]:
     if best is None:
-        return (start, end, name)
-    if start > best[0] or (start == best[0] and end < best[1]):
-        return (start, end, name)
+        return candidate
+    if candidate[0] > best[0] or (
+        candidate[0] == best[0] and candidate[1] < best[1]
+    ):
+        return candidate
     return best
 
 

@@ -18,6 +18,9 @@ from app.schemas.code_context import (
     Hunk,
     Language,
     MethodContext,
+    RelatedCodeContext,
+    RelatedKind,
+    RelatedReason,
     SnippetReason,
     SymbolKind,
     SymbolRef,
@@ -77,6 +80,23 @@ def make_class_context(**overrides):
     }
     data.update(overrides)
     return ClassContext(**data)
+
+
+def make_related_code(**overrides):
+    data = {
+        "path": "src/main/java/cn/UserRepository.java",
+        "name": "findById",
+        "start_line": 20,
+        "end_line": 24,
+        "reason": RelatedReason.SIBLING_OF_CHANGED_METHOD,
+        "kind": RelatedKind.METHOD,
+        "owner_class": "UserRepository",
+        "code": "    public User findById(String id) {\n        return null;\n    }",
+        "source": SymbolSource.HEURISTIC,
+        "confidence": 0.9,
+    }
+    data.update(overrides)
+    return RelatedCodeContext(**data)
 
 
 def make_hunk(**overrides):
@@ -180,6 +200,24 @@ class TestEnums:
     def test_invalid_type_kind(self):
         with pytest.raises(ValueError):
             TypeKind("TRAIT")
+
+    def test_related_kind_values(self):
+        assert {item.value for item in RelatedKind} == {
+            "METHOD",
+            "CONSTRUCTOR",
+            "FIELD",
+            "NESTED_TYPE",
+        }
+
+    def test_related_reason_values(self):
+        assert {item.value for item in RelatedReason} == {
+            "SIBLING_OF_CHANGED_METHOD",
+            "MEMBER_OF_CHANGED_CLASS",
+        }
+
+    def test_invalid_related_kind(self):
+        with pytest.raises(ValueError):
+            RelatedKind("IMPORT")
 
     def test_symbol_source_values(self):
         assert {item.value for item in SymbolSource} == {"AST", "HEURISTIC"}
@@ -474,6 +512,80 @@ class TestClassContext:
         assert data["source"] == "HEURISTIC"
 
 
+class TestRelatedCodeContext:
+    def test_required_fields(self):
+        for missing in ("path", "name", "start_line", "end_line", "reason"):
+            data = {
+                "path": "src/main/java/cn/Demo.java",
+                "name": "helper",
+                "start_line": 3,
+                "end_line": 5,
+                "reason": RelatedReason.SIBLING_OF_CHANGED_METHOD,
+            }
+            del data[missing]
+            with pytest.raises(ValidationError):
+                RelatedCodeContext(**data)
+
+    def test_defaults(self):
+        item = RelatedCodeContext(
+            path="src/main/java/cn/Demo.java",
+            name="helper",
+            start_line=3,
+            end_line=5,
+            reason=RelatedReason.SIBLING_OF_CHANGED_METHOD,
+        )
+        assert item.kind is RelatedKind.METHOD
+        assert item.owner_class is None
+        assert item.code == ""
+        assert item.source is SymbolSource.HEURISTIC
+        assert item.confidence == 0.0
+
+    def test_full_construction(self):
+        item = make_related_code()
+        assert item.path == "src/main/java/cn/UserRepository.java"
+        assert item.name == "findById"
+        assert (item.start_line, item.end_line) == (20, 24)
+        assert item.reason is RelatedReason.SIBLING_OF_CHANGED_METHOD
+        assert item.kind is RelatedKind.METHOD
+        assert item.owner_class == "UserRepository"
+        assert item.code.startswith("    public User findById")
+
+    def test_every_kind_is_accepted(self):
+        for kind in RelatedKind:
+            assert make_related_code(kind=kind).kind is kind
+
+    def test_member_of_changed_class_reason(self):
+        item = make_related_code(reason=RelatedReason.MEMBER_OF_CHANGED_CLASS)
+        assert item.reason is RelatedReason.MEMBER_OF_CHANGED_CLASS
+
+    def test_invalid_kind(self):
+        with pytest.raises(ValidationError):
+            make_related_code(kind="IMPORT")
+
+    def test_invalid_reason(self):
+        with pytest.raises(ValidationError):
+            make_related_code(reason="SAME_VARIABLE_NAME")
+
+    def test_confidence_out_of_range(self):
+        with pytest.raises(ValidationError):
+            make_related_code(confidence=1.5)
+        with pytest.raises(ValidationError):
+            make_related_code(confidence=-0.1)
+
+    def test_round_trip_model_validate(self):
+        item = make_related_code()
+        assert RelatedCodeContext.model_validate(item.model_dump()) == item
+
+    def test_json_dump_uses_string_enums(self):
+        data = make_related_code(
+            kind=RelatedKind.NESTED_TYPE,
+            reason=RelatedReason.MEMBER_OF_CHANGED_CLASS,
+        ).model_dump(mode="json")
+        assert data["kind"] == "NESTED_TYPE"
+        assert data["reason"] == "MEMBER_OF_CHANGED_CLASS"
+        assert data["source"] == "HEURISTIC"
+
+
 class TestFileStructure:
     def test_defaults(self):
         structure = FileStructure()
@@ -628,6 +740,7 @@ class TestFileContext:
         assert context.changed_symbols == []
         assert context.methods == []
         assert context.classes == []
+        assert context.related_code == []
         assert context.enclosing_class is None
         assert context.snippets == []
         assert context.skipped_reason is None
@@ -677,6 +790,39 @@ class TestFileContext:
         assert [item.depth for item in context.classes] == [0, 1]
         assert context.methods[0].enclosing_class == "Nested"
         assert context.enclosing_class == "Nested"
+
+    def test_default_related_code_list_is_not_shared(self):
+        first = make_file_context()
+        second = make_file_context()
+        first.related_code.append(make_related_code())
+        assert second.related_code == []
+
+    def test_with_related_code(self):
+        context = make_file_context(
+            methods=[make_method_context()],
+            classes=[make_class_context()],
+            related_code=[
+                make_related_code(),
+                make_related_code(
+                    name="repository",
+                    kind=RelatedKind.FIELD,
+                    start_line=6,
+                    end_line=6,
+                    confidence=0.8,
+                ),
+            ],
+        )
+        assert [item.name for item in context.related_code] == [
+            "findById",
+            "repository",
+        ]
+        assert [item.kind for item in context.related_code] == [
+            RelatedKind.METHOD,
+            RelatedKind.FIELD,
+        ]
+        assert all(
+            item.owner_class == "UserRepository" for item in context.related_code
+        )
 
     def test_nested_file_diff(self):
         context = make_file_context()
@@ -848,6 +994,26 @@ class TestCodeContext:
         assert file_context.methods[0].changed_ranges == [
             ChangedRange(start_line=16, end_line=16)
         ]
+
+    def test_round_trip_with_related_code(self):
+        context = make_code_context(
+            files=[
+                make_file_context(
+                    classes=[make_class_context()],
+                    methods=[make_method_context(enclosing_class="UserRepository")],
+                    related_code=[make_related_code()],
+                    enclosing_class="UserRepository",
+                    content_available=True,
+                )
+            ]
+        )
+        restored = CodeContext.model_validate(context.model_dump(mode="json"))
+        item = restored.files[0].related_code[0]
+        assert item.name == "findById"
+        assert item.kind is RelatedKind.METHOD
+        assert item.reason is RelatedReason.SIBLING_OF_CHANGED_METHOD
+        assert item.owner_class == "UserRepository"
+        assert item.path == restored.files[0].file_diff.path
 
     def test_json_dump_uses_string_enums(self):
         data = make_code_context().model_dump(mode="json")

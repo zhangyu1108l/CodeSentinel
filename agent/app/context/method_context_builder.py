@@ -24,12 +24,15 @@ import re
 
 from app.context.file_context_builder import split_lines
 from app.context.source_scanner import (
+    JAVA_INLINE_ANNOTATION,
+    JAVA_TYPE,
     MAX_DECLARATION_SCAN_LINES,
     code_slice,
     declaration_signature,
     indent_width,
     java_annotation_start,
     java_body_end,
+    java_brace_depths,
     java_declaration_end,
     mask_java,
     mask_python,
@@ -100,34 +103,14 @@ _JAVA_FORBIDDEN_PREFIX_TOKENS = frozenset(
     }
 )
 
-_JAVA_GENERIC_INNER = r"[^;{}()<>()]*"
-
-_JAVA_TYPE = (
-    r"[\w$][\w$.]*"
-    r"(?:<"
-    + _JAVA_GENERIC_INNER
-    + r"(?:<"
-    + _JAVA_GENERIC_INNER
-    + r"(?:<"
-    + _JAVA_GENERIC_INNER
-    + r">)?"
-    + _JAVA_GENERIC_INNER
-    + r">)?"
-    + _JAVA_GENERIC_INNER
-    + r">)?"
-    r"(?:\[[ \t]*\])*"
-)
-
-_JAVA_INLINE_ANNOTATION = r"(?:@[\w$.]+(?:\([^()]*\))?[ \t]+)*"
-
 _JAVA_METHOD_RE = re.compile(
     r"^[ \t]*"
-    + _JAVA_INLINE_ANNOTATION
+    + JAVA_INLINE_ANNOTATION
     + r"(?P<decl>"
     r"(?:(?:public|protected|private|static|final|abstract|synchronized"
     r"|native|strictfp|default)[ \t]+)*"
     r"(?:<[^;{}()]*>[ \t]+)?"
-    r"(?:" + _JAVA_TYPE + r"[ \t]+)?"
+    r"(?:" + JAVA_TYPE + r"[ \t]+)?"
     r")"
     r"(?P<name>[\w$]+)[ \t]*\("
 )
@@ -257,7 +240,7 @@ def attach_method_contexts(file_context: FileContext) -> FileContext:
 
 
 def _find_java_methods(lines: list[str], masked: list[str]) -> list[MethodContext]:
-    depths = _java_depths(masked)
+    depths = java_brace_depths(masked)
     methods: list[MethodContext] = []
 
     for index, text in enumerate(masked):
@@ -317,17 +300,6 @@ def _find_java_methods(lines: list[str], masked: list[str]) -> list[MethodContex
         )
 
     return _dedupe_methods(methods)
-
-
-def _java_depths(masked: list[str]) -> list[int]:
-    depths: list[int] = []
-    depth = 0
-    for text in masked:
-        depths.append(depth)
-        depth += text.count("{") - text.count("}")
-        if depth < 0:
-            depth = 0
-    return depths
 
 
 def _find_python_methods(

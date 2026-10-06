@@ -166,6 +166,48 @@ class ClassContext(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class RelatedKind(str, Enum):
+    """Structural kind of a related code snippet."""
+
+    METHOD = "METHOD"
+    CONSTRUCTOR = "CONSTRUCTOR"
+    FIELD = "FIELD"
+    NESTED_TYPE = "NESTED_TYPE"
+
+
+class RelatedReason(str, Enum):
+    """Why a snippet was selected as related code.
+
+    SIBLING_OF_CHANGED_METHOD means a changed method is declared in the
+    same type, MEMBER_OF_CHANGED_CLASS means the change hit the type
+    itself, for example its header or one of its fields.
+    """
+
+    SIBLING_OF_CHANGED_METHOD = "SIBLING_OF_CHANGED_METHOD"
+    MEMBER_OF_CHANGED_CLASS = "MEMBER_OF_CHANGED_CLASS"
+
+
+class RelatedCodeContext(BaseModel):
+    """One structurally related snippet of the same file.
+
+    Selection is purely structural: the snippet must be a direct member of
+    the type that owns the change. Nothing is inferred from names or from
+    semantics, and code is the exact slice of [start_line, end_line] so a
+    consumer can always verify it against the source.
+    """
+
+    path: str
+    name: str
+    start_line: int
+    end_line: int
+    reason: RelatedReason
+    kind: RelatedKind = RelatedKind.METHOD
+    owner_class: str | None = None
+    code: str = ""
+    source: SymbolSource = SymbolSource.HEURISTIC
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class FileStructure(BaseModel):
     """Structural view of one file at the reviewed revision."""
 
@@ -227,12 +269,13 @@ class FileContext(BaseModel):
     structure, snippets and changed_symbols stay empty until the file
     content is available; skipped_reason explains why a file was not
     analyzed at all. line_count follows the Git line model and is the
-    basis for locating symbols in later Phase 6 steps. methods holds one
-    entry per method or function hit by file_diff.changed_ranges, and
-    classes every type declaration found in the file. enclosing_class is
-    the unambiguous type around the changed methods, or around the whole
-    file when a single top level type is declared; it stays None whenever
-    that would be a guess.
+    basis for locating symbols in later Phase 6 steps.     methods holds one entry per method or function hit by
+    file_diff.changed_ranges, classes every type declaration found in the
+    file, and related_code the direct members of those types that give a
+    change its structural neighbourhood. enclosing_class is the
+    unambiguous type around the changed methods, or around the whole file
+    when a single top level type is declared; it stays None whenever that
+    would be a guess.
     """
 
     file_diff: FileDiff
@@ -243,6 +286,7 @@ class FileContext(BaseModel):
     changed_symbols: list[SymbolRef] = Field(default_factory=list)
     methods: list[MethodContext] = Field(default_factory=list)
     classes: list[ClassContext] = Field(default_factory=list)
+    related_code: list[RelatedCodeContext] = Field(default_factory=list)
     enclosing_class: str | None = None
     snippets: list[CodeSnippet] = Field(default_factory=list)
     skipped_reason: str | None = None

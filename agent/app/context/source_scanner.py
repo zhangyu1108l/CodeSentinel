@@ -31,6 +31,26 @@ _SIGNATURE_SPACING = (
     (re.compile(r"\s+,"), ","),
 )
 
+JAVA_GENERIC_INNER = r"[^;{}()<>()]*"
+
+JAVA_TYPE = (
+    r"[\w$][\w$.]*"
+    r"(?:<"
+    + JAVA_GENERIC_INNER
+    + r"(?:<"
+    + JAVA_GENERIC_INNER
+    + r"(?:<"
+    + JAVA_GENERIC_INNER
+    + r">)?"
+    + JAVA_GENERIC_INNER
+    + r">)?"
+    + JAVA_GENERIC_INNER
+    + r">)?"
+    r"(?:\[[ \t]*\])*"
+)
+
+JAVA_INLINE_ANNOTATION = r"(?:@(?!interface\b)[\w$.]+(?:\([^()]*\))?[ \t]+)*"
+
 
 def mask_java(lines: list[str]) -> list[str]:
     """Blank out comments, string and char literals and text blocks.
@@ -145,6 +165,22 @@ def mask_python(lines: list[str]) -> tuple[list[str], list[bool]]:
         masked.append("".join(out))
 
     return masked, in_triple
+
+
+def java_brace_depths(masked: list[str]) -> list[int]:
+    """Brace depth in effect at the start of every masked line.
+
+    Depth never drops below zero, so a stray closing brace in a truncated
+    or malformed source cannot shift the rest of the file.
+    """
+    depths: list[int] = []
+    depth = 0
+    for text in masked:
+        depths.append(depth)
+        depth += text.count("{") - text.count("}")
+        if depth < 0:
+            depth = 0
+    return depths
 
 
 def java_declaration_end(
