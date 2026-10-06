@@ -16,6 +16,7 @@ from app.schemas.code_context import (
     FileStructure,
     Hunk,
     Language,
+    MethodContext,
     SnippetReason,
     SymbolKind,
     SymbolRef,
@@ -40,6 +41,23 @@ def make_symbol(**overrides):
     }
     data.update(overrides)
     return SymbolRef(**data)
+
+
+def make_method_context(**overrides):
+    data = {
+        "name": "findById",
+        "start_line": 14,
+        "end_line": 18,
+        "kind": SymbolKind.METHOD,
+        "language": Language.JAVA,
+        "signature": "public User findById(String id)",
+        "code": "    public User findById(String id) {\n        return null;\n    }",
+        "source": SymbolSource.HEURISTIC,
+        "confidence": 0.9,
+        "changed_ranges": [ChangedRange(start_line=16, end_line=16)],
+    }
+    data.update(overrides)
+    return MethodContext(**data)
 
 
 def make_hunk(**overrides):
@@ -288,6 +306,75 @@ class TestSymbolRef:
         assert make_symbol(kind=SymbolKind.FUNCTION).kind is SymbolKind.FUNCTION
 
 
+class TestMethodContext:
+    def test_required_fields(self):
+        for missing in ("name", "start_line", "end_line"):
+            data = {"name": "run", "start_line": 1, "end_line": 2}
+            del data[missing]
+            with pytest.raises(ValidationError):
+                MethodContext(**data)
+
+    def test_defaults(self):
+        method = MethodContext(name="run", start_line=1, end_line=2)
+        assert method.kind is SymbolKind.METHOD
+        assert method.language is Language.OTHER
+        assert method.signature == ""
+        assert method.code == ""
+        assert method.source is SymbolSource.HEURISTIC
+        assert method.confidence == 0.0
+        assert method.changed_ranges == []
+
+    def test_full_construction(self):
+        method = make_method_context()
+        assert method.name == "findById"
+        assert (method.start_line, method.end_line) == (14, 18)
+        assert method.kind is SymbolKind.METHOD
+        assert method.language is Language.JAVA
+        assert method.changed_ranges == [ChangedRange(start_line=16, end_line=16)]
+
+    def test_function_kind(self):
+        method = make_method_context(kind=SymbolKind.FUNCTION, language=Language.PYTHON)
+        assert method.kind is SymbolKind.FUNCTION
+        assert method.language is Language.PYTHON
+
+    def test_default_range_list_is_not_shared(self):
+        first = MethodContext(name="a", start_line=1, end_line=1)
+        second = MethodContext(name="b", start_line=2, end_line=2)
+        first.changed_ranges.append(ChangedRange(start_line=1, end_line=1))
+        assert second.changed_ranges == []
+
+    def test_confidence_boundaries(self):
+        assert make_method_context(confidence=0.0).confidence == 0.0
+        assert make_method_context(confidence=1.0).confidence == 1.0
+
+    def test_confidence_out_of_range(self):
+        with pytest.raises(ValidationError):
+            make_method_context(confidence=1.5)
+        with pytest.raises(ValidationError):
+            make_method_context(confidence=-0.1)
+
+    def test_invalid_kind(self):
+        with pytest.raises(ValidationError):
+            make_method_context(kind="MODULE")
+
+    def test_source_can_be_ast(self):
+        method = make_method_context(source=SymbolSource.AST, confidence=1.0)
+        assert method.source is SymbolSource.AST
+
+    def test_multiple_changed_ranges(self):
+        method = make_method_context(
+            changed_ranges=[
+                ChangedRange(start_line=15, end_line=15),
+                ChangedRange(start_line=17, end_line=18),
+            ]
+        )
+        assert len(method.changed_ranges) == 2
+
+    def test_round_trip_model_validate(self):
+        method = make_method_context()
+        assert MethodContext.model_validate(method.model_dump()) == method
+
+
 class TestFileStructure:
     def test_defaults(self):
         structure = FileStructure()
@@ -440,10 +527,34 @@ class TestFileContext:
         assert context.line_count == 0
         assert context.content_available is False
         assert context.changed_symbols == []
+        assert context.methods == []
         assert context.enclosing_class is None
         assert context.snippets == []
         assert context.skipped_reason is None
         assert context.notes == []
+
+    def test_default_method_list_is_not_shared(self):
+        first = make_file_context()
+        second = make_file_context()
+        first.methods.append(make_method_context())
+        assert second.methods == []
+
+    def test_with_methods(self):
+        context = make_file_context(
+            methods=[make_method_context()],
+            changed_symbols=[make_symbol()],
+            content=make_file_content(),
+            line_count=1,
+            content_available=True,
+        )
+        assert len(context.methods) == 1
+        assert context.methods[0].name == "findById"
+        assert context.methods[0].changed_ranges == [
+            ChangedRange(start_line=16, end_line=16)
+        ]
+        assert context.changed_symbols[0].name == "findById"
+        assert context.enclosing_class is None
+        assert context.structure is None
 
     def test_nested_file_diff(self):
         context = make_file_context()
@@ -582,6 +693,17 @@ class TestCodeContext:
         assert restored.files[0].line_count == 1
         assert restored.files[0].content.content == "package cn.codesentinel;\n"
         assert restored.files[0].content.revision == "def456"
+
+    def test_round_trip_with_methods(self):
+        context = make_code_context(
+            files=[make_file_context(methods=[make_method_context()])]
+        )
+        restored = CodeContext.model_validate(context.model_dump(mode="json"))
+        method = restored.files[0].methods[0]
+        assert method.kind is SymbolKind.METHOD
+        assert method.language is Language.JAVA
+        assert method.source is SymbolSource.HEURISTIC
+        assert method.changed_ranges == [ChangedRange(start_line=16, end_line=16)]
 
     def test_json_dump_uses_string_enums(self):
         data = make_code_context().model_dump(mode="json")

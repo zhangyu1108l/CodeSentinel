@@ -101,6 +101,29 @@ class SymbolRef(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class MethodContext(BaseModel):
+    """One method or function together with the changes that hit it.
+
+    start_line includes leading decorators or annotations because they are
+    part of the declaration; end_line is the last line of the body. Both
+    are 1-based and follow the diff line numbering of the head revision.
+    code carries the exact source slice so later phases do not need the
+    whole file again. confidence reflects how the location was derived,
+    never how serious a finding is.
+    """
+
+    name: str
+    start_line: int
+    end_line: int
+    kind: SymbolKind = SymbolKind.METHOD
+    language: Language = Language.OTHER
+    signature: str = ""
+    code: str = ""
+    source: SymbolSource = SymbolSource.HEURISTIC
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    changed_ranges: list[ChangedRange] = Field(default_factory=list)
+
+
 class FileStructure(BaseModel):
     """Structural view of one file at the reviewed revision."""
 
@@ -162,7 +185,8 @@ class FileContext(BaseModel):
     structure, snippets and changed_symbols stay empty until the file
     content is available; skipped_reason explains why a file was not
     analyzed at all. line_count follows the Git line model and is the
-    basis for locating symbols in later Phase 6 steps.
+    basis for locating symbols in later Phase 6 steps. methods holds one
+    entry per method or function hit by file_diff.changed_ranges.
     """
 
     file_diff: FileDiff
@@ -171,6 +195,7 @@ class FileContext(BaseModel):
     line_count: int = 0
     content_available: bool = False
     changed_symbols: list[SymbolRef] = Field(default_factory=list)
+    methods: list[MethodContext] = Field(default_factory=list)
     enclosing_class: str | None = None
     snippets: list[CodeSnippet] = Field(default_factory=list)
     skipped_reason: str | None = None
