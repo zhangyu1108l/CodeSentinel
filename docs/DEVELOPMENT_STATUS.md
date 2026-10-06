@@ -1306,6 +1306,88 @@ Phase 4：Review Task + Redis
 
 ---
 
+### 2026-09-29
+
+Phase 4（Review Task + Redis）全部 6 个子阶段完成。
+
+已完成：
+
+- [x] Phase 4.1：ReviewTask Entity + TaskStatus 枚举
+- [x] Phase 4.2：ReviewTaskRepository + ReviewTaskService
+- [x] Phase 4.3：Webhook → ReviewTaskService.createTask（幂等接入）
+- [x] Phase 4.4：Redis Producer（RPUSH，Spring Data Redis）
+- [x] Phase 4.5：Python Worker（BLPOP consumer + TaskHandler）
+- [x] Phase 4.6：Retry + Idempotency（owner+repo+prNumber+commitSha）
+- [x] 34 个文件变更，约 2000 行代码
+- [x] Java 测试：152/152，BUILD SUCCESS
+- [x] Python 测试：25/25，全部通过
+- [x] Git commit：`74dadba` — feat: complete phase 4 review task and redis worker
+
+Phase 4 实现了完整的异步任务链路：
+
+```text
+GitHub Webhook
+    ↓
+WebhookController
+    ↓
+ReviewTaskService.createTask()  ← 幂等
+    ↓
+ReviewTask(PENDING) → MySQL
+    ↓
+ReviewTaskProducer → Redis RPUSH
+    ↓
+Python Worker BLPOP → TaskHandler
+    ↓
+Java 状态 API (running/complete/failure)
+    ↓
+成功 → COMPLETED / 失败 → retryCount<3 → PENDING → Redis 重入队
+                              retryCount>=3 → FAILED
+```
+
+当前包结构：
+
+```text
+cn.codesentinel/
+├── config/
+│   ├── GithubAppProperties.java
+│   └── ReviewTaskProperties.java         (新增)
+├── controller/
+│   ├── HealthController.java
+│   └── ReviewTaskController.java         (新增)
+├── github/
+│   └── ... (Phase 3, 无变更)
+├── task/                                 (新增)
+│   ├── ReviewTask.java
+│   ├── ReviewTaskMessage.java
+│   ├── ReviewTaskProducer.java
+│   ├── ReviewTaskRepository.java
+│   ├── ReviewTaskService.java
+│   ├── TaskFailureResponse.java
+│   ├── TaskNotFoundException.java
+│   └── TaskStatus.java
+└── webhook/
+    ├── WebhookController.java            (修改)
+    └── WebhookSignatureVerifier.java
+
+agent/app/
+├── worker/                               (新增)
+│   ├── consumer.py
+│   ├── handler.py
+│   ├── java_client.py
+│   ├── models.py
+│   └── __main__.py
+└── config/
+    └── settings.py                       (修改)
+```
+
+下一步：
+
+```text
+Phase 5：Python AI Service + DeepSeek
+```
+
+---
+
 ### 2026-09-26 (2)
 
 Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
