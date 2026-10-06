@@ -9,13 +9,20 @@ logger = logging.getLogger("codesentinel-ai.ai_client")
 
 
 class AiServiceClient:
-    def __init__(self, base_url: str = settings.AI_SERVICE_URL):
+    def __init__(
+        self,
+        base_url: str = settings.AI_SERVICE_URL,
+        timeout: float = settings.AI_SERVICE_TIMEOUT,
+    ):
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
 
     def review(self, request: ReviewTaskRequest) -> ReviewTaskResult:
         url = f"{self.base_url}/api/reviews"
         try:
-            resp = httpx.post(url, json=request.model_dump(), timeout=10)
+            resp = httpx.post(
+                url, json=request.model_dump(), timeout=self.timeout
+            )
             resp.raise_for_status()
             result = ReviewTaskResult.model_validate(resp.json())
             logger.info(

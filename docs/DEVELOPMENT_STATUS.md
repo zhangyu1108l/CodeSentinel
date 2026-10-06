@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 4：Review Task + Redis — 已全部完成**
+**Phase 5：Python AI Service + DeepSeek — 已完成（5.1 HTTP 边界 + 5.2 DeepSeek 真实调用）**
 
 ## 当前任务
 
-Phase 4 已完成。下一步：Phase 5（Python AI Service + DeepSeek）。
+Phase 5 已完成。下一步：Phase 6（Code Context）。
 
 ## 当前总体进度
 
@@ -32,7 +32,7 @@ Phase 1  基础工程                 ✅ 已完成
 Phase 2  GitHub App + Webhook     ✅ 已完成
 Phase 3  GitHub API               ✅ 已完成
 Phase 4  Review Task + Redis      ✅ 已完成
-Phase 5  Python AI Service        ⬜ 未开始
+Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ⬜ 未开始
 Phase 7  Static Analysis          ⬜ 未开始
 Phase 8  LangGraph Multi-Agent    ⬜ 未开始
@@ -495,24 +495,92 @@ Spring Boot
 
 ## 子任务
 
-- [ ] LLM Service
-- [ ] DeepSeek 配置
-- [ ] Timeout
-- [ ] Retry
-- [ ] Pydantic Schema
-- [ ] Structured Output
-- [ ] 基础 Review Prompt
-- [ ] Java Review
-- [ ] Python Review
-- [ ] Service-to-Service API
+- [x] LLM Service（LLMService：调用 + JSON 解析 + Pydantic 校验）
+- [x] DeepSeek 配置（DEEPSEEK_API_KEY / MODEL / BASE_URL / TIMEOUT / TEMPERATURE）
+- [x] Timeout（DeepSeek 调用 60s；Worker → AI Service 120s，AI_SERVICE_TIMEOUT）
+- [x] Retry（复用 Phase 4 外层 task retry：LLM 失败 → FastAPI 500 → Worker → failure/retry 链路；LLM 内部 retry/repair 未实现，属后续优化）
+- [x] Pydantic Schema（ReviewTaskRequest / ReviewTaskResult / ReviewFinding / LlmReviewOutput）
+- [x] Structured Output（DeepSeek json_object → json.loads → LlmReviewOutput.model_validate）
+- [x] 基础 Review Prompt（agent/app/prompts/review.py，system + user）
+- [ ] Java Review（依赖 Phase 6 Code Context 提供代码内容）
+- [ ] Python Review（依赖 Phase 6 Code Context 提供代码内容）
+- [x] Service-to-Service API（POST /api/reviews，Phase 5.1）
+
+## Phase 5 子阶段
+
+- [x] Phase 5.1：Python AI Service HTTP 边界（Review DTO / Mock ReviewService / Worker 接线）— commit `d9fa710`
+- [x] Phase 5.2：DeepSeek LLM 真实调用（LLMService / DeepSeekClient / Prompt / 结构化输出）
+
+## Phase 5 完成链路
+
+```text
+Redis BLPOP "codesentinel:review:tasks"
+    ↓
+Python Worker (TaskHandler)
+    ↓ HTTP POST /api/reviews (timeout=AI_SERVICE_TIMEOUT, 默认 120s)
+FastAPI ReviewService (async)
+    ↓ prompts.build_messages (system + user)
+LLMService
+    ↓ DeepSeekClient (httpx.AsyncClient, json_object 模式)
+DeepSeek API POST {DEEPSEEK_BASE_URL}/chat/completions
+    ↓ choices[0].message.content (JSON 字符串)
+json.loads → LlmReviewOutput.model_validate → ReviewFinding[]
+    ↓
+ReviewTaskResult (status=COMPLETED, report 统计)
+    ↓
+Worker → Java POST /api/tasks/{id}/complete
+    ↓
+MySQL: COMPLETED
+```
+
+异常传播（复用 Phase 4 机制，零新增 retry）：
+
+```text
+LLMConfigError / LLMException / LLMResponseError
+    ↓
+FastAPI 500 → AiServiceClient raise_for_status
+    ↓
+handler._process 抛出 → consumer._handle_task_failure
+    ↓
+Java report_failure → retry 判定 → RPUSH 重入队 / FAILED
+```
+
+## 关键设计
+
+- DeepSeek 使用 httpx.AsyncClient 直连 OpenAI-compatible API，未引入 OpenAI SDK / LangChain / LangGraph
+- API 层 → ReviewService → LLMService → DeepSeekClient 四层职责分离；Prompt 独立在 app/prompts/
+- LLM 只产出 findings；task_id / status / report 由 ReviewService 组装
+- 当前 files=[]（无代码内容），LLM 正确返回 findings=[]，属预期行为
+- test_deepseek_live.py 在 DEEPSEEK_API_KEY 未配置时自动 skip，默认 pytest 不依赖真实 API
+
+## 测试结果
+
+| 服务 | 总数 | 通过 | 状态 |
+|---|---|---|---|
+| Java (Spring Boot) | 152 | 152 | ✅ |
+| Python (agent) | 79 | 79 | ✅（含 2 个真实 DeepSeek live 测试） |
+
+真实 DeepSeek 联调（Phase 5.2 收尾时执行）：
+- live 单测：files=[] / files=[路径] 均返回 findings=[]，2 passed
+- 全链路：Redis → Worker → FastAPI → DeepSeek（HTTP 200，content_length=16 即 `{"findings": []}`）→ Java → MySQL COMPLETED（5 秒内）
+
+## 已知问题 / 技术债
+
+- DEEPSEEK_API_KEY 当前来自系统环境变量，agent/.env 未持久化（建议统一到 agent/.env）
+- 本机 redis-server 与 Docker Redis 均监听 6379，localhost 解析到本机实例（手工验证时消息需投递本机 Redis）
+- 环境实装 redis-py 8.1.0，requirements.txt 声明 redis>=5.0,<6.0 不符
+- MySQL review_task 表由手动 DDL 创建（JPA ddl-auto 默认 none）
+- LLM 内部 retry / repair / JSON 自动修复未实现（按 Phase 5.2 边界，走外层 task retry）
 
 ## Phase 5 状态
 
-**⬜ 未开始**
+**✅ 已完成**
+
+核心目标"先证明 Spring Boot → Python → DeepSeek → Structured Finding → Spring Boot 链路是通的"已达成。Java/Python 代码的真实分析能力在 Phase 6 提供 Code Context 后自然生效。
 
 ## 当前任务
 
-暂无。
+Phase 5 已完成。下一步：Phase 6（Code Context）。
 
 ## 阻塞问题
 
@@ -1388,6 +1456,77 @@ Phase 5：Python AI Service + DeepSeek
 
 ---
 
+### 2026-10-06
+
+Phase 5（Python AI Service + DeepSeek）完成，含 5.1 / 5.2 两个子阶段。
+
+Phase 5.1（commit `d9fa710`）：
+
+- [x] Review DTO：`agent/app/schemas/review.py`（ReviewTaskRequest / ReviewTaskResult / ReviewFinding + Category/Severity 枚举，confidence 0~1）
+- [x] Mock ReviewService + `POST /api/reviews` HTTP 边界（`agent/app/api/review_router.py`）
+- [x] Worker 接线：`handler._process` → `AiServiceClient` → FastAPI（repository = owner/repo，files=[]）
+- [x] Python 测试 54/54
+
+Phase 5.2：
+
+- [x] `agent/app/llm/`：DeepSeekClient（httpx.AsyncClient 直连 OpenAI-compatible API）+ LLMService（JSON 解析 + Pydantic 校验）+ exceptions（LLMConfigError / LLMException / LLMResponseError）
+- [x] 结构化输出：DeepSeek json_object → json.loads → `LlmReviewOutput`（仅 findings）→ ReviewFinding[]
+- [x] 基础 Review Prompt：`agent/app/prompts/review.py`（system 明确 JSON schema 与枚举约束；user 携带 PR 元数据并声明无代码内容）
+- [x] 全链路 async：DeepSeekClient / LLMService / ReviewService；Worker 保持同步（AiServiceClient timeout 参数化为 AI_SERVICE_TIMEOUT=120）
+- [x] 新增配置：DEEPSEEK_BASE_URL / DEEPSEEK_TIMEOUT(60) / DEEPSEEK_TEMPERATURE(0.1) / AI_SERVICE_TIMEOUT(120)
+- [x] 移除 Mock Finding 生成，ReviewService 组装真实 LLM findings
+- [x] Python 79/79（含 2 个 live 测试）、Java 152/152
+- [x] 真实 DeepSeek 联调：files=[] → findings=[]；全链路 MySQL COMPLETED
+
+Phase 5 最终链路（已在真实环境验证）：
+
+```text
+Redis → Python Worker → FastAPI /api/reviews
+→ ReviewService → LLMService → DeepSeekClient → DeepSeek API
+→ JSON → LlmReviewOutput → ReviewFinding[]
+→ ReviewTaskResult → Worker → Java mark_completed → MySQL COMPLETED
+```
+
+当前 agent/app 包结构：
+
+```text
+agent/app/
+├── api/review_router.py           (Phase 5.1)
+├── llm/                           (Phase 5.2 新增)
+│   ├── deepseek_client.py
+│   ├── exceptions.py
+│   └── llm_service.py
+├── prompts/review.py              (Phase 5.2 新增)
+├── schemas/
+│   ├── llm_output.py              (Phase 5.2 新增)
+│   └── review.py                  (Phase 5.1)
+├── services/review_service.py     (Phase 5.2 改造：真实 LLM)
+└── worker/                        (ai_client.py timeout 参数化)
+```
+
+已知问题 / 技术债：
+
+- DEEPSEEK_API_KEY 来自系统环境变量，agent/.env 未持久化
+- 本机 Redis 与 Docker Redis 端口并存（localhost:6379 解析到本机实例）
+- redis-py 实装 8.1.0 与 requirements.txt 声明不符
+- MySQL review_task 表为手动 DDL
+- LLM 内部 retry/repair 未实现（按阶段边界，走外层 task retry）
+- Java Review / Python Review 待 Phase 6 提供代码内容后生效（当前 files=[]，LLM 正确返回空 findings）
+
+当前状态：
+
+```text
+Phase 5：Python AI Service + DeepSeek ✅ 完成
+```
+
+下一步：
+
+```text
+Phase 6：Code Context
+```
+
+---
+
 ### 2026-09-26 (2)
 
 Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
@@ -1550,19 +1689,30 @@ Integration Test
 # 23. 当前唯一下一步
 
 ```text
-Phase 5：Python AI Service + DeepSeek
+Phase 6：Code Context
 ```
 
 目标：
 
 ```text
-Spring Boot → Python AI Service → DeepSeek → Structured Finding → Spring Boot
+Diff
+  ↓
+Changed File
+  ↓
+Changed Method
+  ↓
+Class
+  ↓
+Imports
+  ↓
+Related Code
+  ↓
+Code Context → 提供给 LLM（files 携带真实代码内容）
 ```
 
 不要提前实现：
 
 ```text
-Code Context (Phase 6)
 Static Analysis (Phase 7)
 LangGraph Multi-Agent (Phase 8)
 GitHub Comment (Phase 9)
