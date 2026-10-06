@@ -966,3 +966,94 @@ class TestAttachClassContexts:
         assert [m.enclosing_class for m in twice.methods] == [
             m.enclosing_class for m in once.methods
         ]
+
+
+class TestHeaderEndLine:
+    """Phase 6.6: header_end_line must point at the declaration header."""
+
+    def test_single_line_java_class(self):
+        assert by_name(java_classes(), "Outer").header_end_line == 6
+
+    def test_nested_java_class(self):
+        assert by_name(java_classes(), "Nested").header_end_line == 23
+
+    def test_local_java_class(self):
+        assert by_name(java_classes(), "Local").header_end_line == 25
+
+    def test_java_interface(self):
+        assert by_name(java_classes(), "Inner").header_end_line == 31
+
+    def test_java_enum(self):
+        assert by_name(java_classes(), "Mode").header_end_line == 35
+
+    def test_java_record(self):
+        assert by_name(java_classes(), "Point").header_end_line == 40
+
+    def test_java_one_line_class(self):
+        assert by_name(java_classes(), "Second").header_end_line == 49
+
+    def test_multiline_java_declaration(self):
+        source = "\n".join(
+            [
+                "public class Foo",
+                "        extends Bar {",
+                "    void run() { }",
+                "}",
+            ]
+        )
+        classes = find_classes(source, Language.JAVA)
+        assert classes[0].header_end_line == 2
+
+    def test_multiline_java_declaration_with_annotation(self):
+        source = "\n".join(
+            [
+                "@Service",
+                "public class Box<T>",
+                "        implements Repo {",
+                "    void run() { }",
+                "}",
+            ]
+        )
+        classes = find_classes(source, Language.JAVA)
+        assert classes[0].start_line == 1
+        assert classes[0].header_end_line == 3
+
+    def test_multiline_java_record(self):
+        source = "\n".join(
+            [
+                "public record Point(",
+                "        int x,",
+                "        int y) {",
+                "}",
+            ]
+        )
+        classes = find_classes(source, Language.JAVA)
+        assert classes[0].header_end_line == 3
+
+    def test_single_line_python_class(self):
+        assert by_name(python_classes(), "Nested").header_end_line == 25
+
+    def test_decorated_python_class_header(self):
+        assert by_name(python_classes(), "Point").header_end_line == 11
+
+    def test_multiline_python_declaration(self):
+        source = "\n".join(
+            [
+                "class Demo(",
+                "    Base,",
+                "):",
+                "    value = 1",
+            ]
+        )
+        classes = find_classes(source, Language.PYTHON)
+        assert classes[0].header_end_line == 3
+
+    def test_header_end_line_is_inside_the_range(self):
+        for item in java_classes():
+            assert item.start_line <= item.header_end_line <= item.end_line
+        for item in python_classes():
+            assert item.start_line <= item.header_end_line <= item.end_line
+
+    def test_header_end_line_is_always_set(self):
+        assert all(item.header_end_line > 0 for item in java_classes())
+        assert all(item.header_end_line > 0 for item in python_classes())

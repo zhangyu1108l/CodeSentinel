@@ -365,6 +365,7 @@ def _make_class(
         name=name,
         start_line=start_index + 1,
         end_line=end_index + 1,
+        header_end_line=signature_end_index + 1,
         kind=kind,
         language=language,
         signature=declaration_signature(
