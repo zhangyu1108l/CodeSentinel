@@ -1,14 +1,21 @@
 """Tests for the Phase 6.6 token estimator and size controller."""
 
+import pathlib
+
 from app.context.context_size_controller import (
     DEFAULT_BUDGET,
     REASON_CHANGED_OVERFLOW,
+    REASON_CHANGED_TOTAL_OVERFLOW,
     REASON_FILE_BUDGET,
     REASON_ITEM_OVERFLOW,
     REASON_RELATED_BUDGET,
+    REASON_TOTAL_BUDGET,
+    aggregate_stats,
     apply_context_budget,
+    apply_context_budget_to_files,
     estimate_tokens,
     measure_context,
+    plan_file_budgets,
 )
 from app.context.related_code_builder import KIND_PRIORITY
 from app.schemas.code_context import (
@@ -70,11 +77,12 @@ def make_item(
     confidence=0.9,
     truncated=False,
     owner="A",
+    path=PATH,
 ):
     if code is None:
         code = "\n".join(LINES[start - 1 : end])
     return RelatedCodeContext(
-        path=PATH,
+        path=path,
         name=name,
         start_line=start,
         end_line=end,
@@ -84,6 +92,26 @@ def make_item(
         code=code,
         confidence=confidence,
         truncated=truncated,
+    )
+
+
+def make_multi_file(path, related=(), methods=(), content=None, changed=()):
+    return FileContext(
+        file_diff=FileDiff(
+            path=path,
+            status=FileStatus.MODIFIED,
+            language=Language.JAVA,
+            changed_ranges=list(changed),
+            additions=1,
+            deletions=1,
+            patch_available=True,
+        ),
+        content=FileContent(path=path, content=content)
+        if content is not None
+        else None,
+        content_available=content is not None,
+        methods=list(methods),
+        related_code=list(related),
     )
 
 
@@ -908,7 +936,7 @@ class TestIntegrationWithBuilders:
         )
         assert trimmed.end_line == 4
 
-    def test_module_has_no_multi_file_api(self):
+    def test_multi_file_api_is_available(self):
         from app.context import context_size_controller as module
 
         for name in (
@@ -916,7 +944,7 @@ class TestIntegrationWithBuilders:
             "apply_context_budget_to_files",
             "aggregate_stats",
         ):
-            assert not hasattr(module, name)
+            assert callable(getattr(module, name))
 
 
 class TestEstimateTokensEmpty:
@@ -1091,3 +1119,540 @@ class TestEstimateTokensStability:
     def test_repeated_calls_are_stable(self):
         text = "中文" * 50 + "abc" * 50
         assert len({estimate_tokens(text) for _ in range(5)}) == 1
+
+
+def multi_budget(**overrides):
+    data = {
+        "max_item_chars": 10**6,
+        "max_related_chars": 10**6,
+        "max_file_chars": 10**6,
+        "min_file_chars": 100,
+        "max_total_chars": None,
+    }
+    data.update(overrides)
+    return ContextBudget(**data)
+
+
+def make_file_with_items(path, item_names, item_code="i" * 20, method_code=None):
+    related = [
+        make_item(name, code=item_code, path=path, start=1, end=1)
+        for name in item_names
+    ]
+    methods = []
+    if method_code is not None:
+        methods = [
+            MethodContext(
+                name="changed",
+                start_line=1,
+                end_line=2,
+                enclosing_class="A",
+                code=method_code,
+            )
+        ]
+    return make_multi_file(path, related=related, methods=methods)
+
+
+class TestPlanFileBudgets:
+    def test_empty_weights(self):
+        assert plan_file_budgets([], DEFAULT_BUDGET) == []
+
+    def test_without_total_every_file_gets_the_per_file_cap(self):
+        plans = plan_file_budgets([1, 2, 3], DEFAULT_BUDGET)
+        assert [plan.max_file_chars for plan in plans] == [24000, 24000, 24000]
+        assert [plan.max_related_chars for plan in plans] == [12000] * 3
+
+    def test_equal_weights_share_the_total_equally(self):
+        plans = plan_file_budgets(
+            [1, 1, 1, 1], multi_budget(max_total_chars=30000)
+        )
+        assert [plan.max_file_chars for plan in plans] == [7500] * 4
+        assert sum(plan.max_file_chars for plan in plans) == 30000
+
+    def test_heavier_files_get_more(self):
+        plans = plan_file_budgets(
+            [1, 2, 3], multi_budget(max_total_chars=30000)
+        )
+        caps = [plan.max_file_chars for plan in plans]
+        assert caps == sorted(caps)
+        assert caps[0] < caps[1] < caps[2]
+        assert sum(caps) == 30000
+
+    def test_floor_is_honored_when_the_total_allows_it(self):
+        plans = plan_file_budgets(
+            [1, 2, 3], multi_budget(max_total_chars=30000, min_file_chars=4000)
+        )
+        assert all(plan.max_file_chars >= 4000 for plan in plans)
+        assert all(plan.max_file_chars <= 24000 for plan in plans)
+
+    def test_total_is_never_exceeded(self):
+        for total in (1000, 5000, 12345, 60000):
+            plans = plan_file_budgets(
+                [1, 2, 3], multi_budget(max_total_chars=total)
+            )
+            assert sum(plan.max_file_chars for plan in plans) <= total
+
+    def test_per_file_cap_is_never_exceeded(self):
+        plans = plan_file_budgets(
+            [1, 1], multi_budget(max_total_chars=10**6, max_file_chars=5000)
+        )
+        assert all(plan.max_file_chars == 5000 for plan in plans)
+
+    def test_too_small_total_degrades_deterministically(self):
+        budget = multi_budget(max_total_chars=5000, min_file_chars=4000)
+        first = [plan.max_file_chars for plan in plan_file_budgets([1, 2, 3], budget)]
+        second = [plan.max_file_chars for plan in plan_file_budgets([1, 2, 3], budget)]
+        assert first == second == [0, 1000, 4000]
+        assert sum(first) == 5000
+
+    def test_degradation_gives_floors_to_heavier_files_first(self):
+        budget = multi_budget(max_total_chars=100, min_file_chars=100)
+        plans = plan_file_budgets([1, 3], budget)
+        assert [plan.max_file_chars for plan in plans] == [0, 100]
+
+    def test_output_order_matches_input(self):
+        plans = plan_file_budgets(
+            [3, 1, 2], multi_budget(max_total_chars=30000)
+        )
+        caps = [plan.max_file_chars for plan in plans]
+        assert caps[0] > caps[1]
+        assert caps[2] > caps[1]
+
+    def test_zero_and_negative_weights_are_treated_as_one(self):
+        plans = plan_file_budgets(
+            [0, -5], multi_budget(max_total_chars=20000)
+        )
+        assert plans[0].max_file_chars == plans[1].max_file_chars
+
+    def test_related_is_capped_by_the_file_cap(self):
+        plans = plan_file_budgets(
+            [1], multi_budget(max_total_chars=500, min_file_chars=100)
+        )
+        assert plans[0].max_file_chars == 500
+        assert plans[0].max_related_chars == 500
+
+    def test_related_stays_at_its_own_limit_when_roomier(self):
+        plans = plan_file_budgets(
+            [1], multi_budget(max_total_chars=30000, max_related_chars=2000)
+        )
+        assert plans[0].max_related_chars == 2000
+
+    def test_input_budget_is_not_modified(self):
+        budget = multi_budget(max_total_chars=30000)
+        before = budget.model_dump()
+        plan_file_budgets([1, 2], budget)
+        assert budget.model_dump() == before
+
+    def test_limits_other_than_file_caps_are_copied(self):
+        budget = multi_budget(
+            max_total_chars=30000,
+            max_item_chars=123,
+            keep_changed_code=False,
+        )
+        plan = plan_file_budgets([1], budget)[0]
+        assert plan.max_item_chars == 123
+        assert plan.keep_changed_code is False
+        assert plan.max_total_chars == 30000
+
+
+def make_heavy_file(path, method_code="m" * 400, method_count=2):
+    methods = [
+        MethodContext(
+            name=f"changed{index}",
+            start_line=1,
+            end_line=2,
+            enclosing_class="A",
+            code=method_code,
+        )
+        for index in range(method_count)
+    ]
+    return make_multi_file(path, methods=methods)
+
+
+class TestApplyBudgetToFiles:
+    def test_empty_list(self):
+        assert apply_context_budget_to_files([], multi_budget()) == []
+
+    def test_single_file_matches_the_single_file_controller(self):
+        file_context = make_file_with_items("a/A.java", ["a1", "a2"])
+        budget = multi_budget()
+        expected = apply_context_budget(
+            file_context, plan_file_budgets([1], budget)[0]
+        )
+        assert apply_context_budget_to_files([file_context], budget) == [expected]
+
+    def test_without_total_phase_three_does_not_run(self):
+        files = [
+            make_file_with_items("a/A.java", ["a1"]),
+            make_file_with_items("b/B.java", ["b1"]),
+        ]
+        results = apply_context_budget_to_files(files, multi_budget())
+        assert [len(f.related_code) for f in results] == [1, 1]
+        assert all(f.truncation.applied is False for f in results)
+
+    def test_generous_total_changes_nothing(self):
+        files = [
+            make_file_with_items("a/A.java", ["a1"]),
+            make_file_with_items("b/B.java", ["b1"]),
+        ]
+        results = apply_context_budget_to_files(
+            files, multi_budget(max_total_chars=10**6)
+        )
+        assert [len(f.related_code) for f in results] == [1, 1]
+
+    def test_lower_weight_file_drops_first(self):
+        low = make_file_with_items("a/A.java", ["low1", "low2"])
+        high = make_heavy_file("b/B.java")
+        results = apply_context_budget_to_files(
+            [low, high], multi_budget(min_file_chars=50, max_total_chars=400)
+        )
+        assert results[0].related_code == []
+        assert results[0].truncation.dropped_items == [
+            "related:METHOD:low1 (1-1)",
+            "related:METHOD:low2 (1-1)",
+        ]
+        assert REASON_TOTAL_BUDGET in results[0].truncation.reasons
+        assert [method.code for method in results[1].methods] == [
+            "m" * 400,
+            "m" * 400,
+        ]
+        assert REASON_CHANGED_TOTAL_OVERFLOW in results[1].truncation.reasons
+
+    def test_within_a_file_the_lowest_priority_drops_first(self):
+        items = [
+            make_item(
+                "nested",
+                kind=RelatedKind.NESTED_TYPE,
+                code="n" * 20,
+                path="a/A.java",
+            ),
+            make_item("helper", code="h" * 20, path="a/A.java"),
+        ]
+        files = [make_multi_file("a/A.java", related=items)]
+        results = apply_context_budget_to_files(
+            files, multi_budget(min_file_chars=50, max_total_chars=50)
+        )
+        assert [item.name for item in results[0].related_code] == ["helper"]
+
+    def test_group_fits_the_total_when_items_were_available(self):
+        files = [
+            make_file_with_items("a/A.java", ["a1", "a2", "a3"]),
+            make_file_with_items("b/B.java", ["b1", "b2", "b3"]),
+        ]
+        grouped = aggregate_stats(files).prompt_chars
+        limit = grouped - 60
+        results = apply_context_budget_to_files(
+            files, multi_budget(min_file_chars=50, max_total_chars=limit)
+        )
+        assert aggregate_stats(results).prompt_chars <= limit
+
+    def test_changed_code_is_protected(self):
+        method_code = "m" * 400
+        files = [
+            make_file_with_items("a/A.java", ["a1"], method_code=method_code),
+            make_file_with_items("b/B.java", ["b1"], method_code=method_code),
+        ]
+        results = apply_context_budget_to_files(
+            files, multi_budget(min_file_chars=50, max_total_chars=500)
+        )
+        assert [f.methods[0].code for f in results] == [method_code, method_code]
+
+    def test_diff_hunks_are_never_trimmed(self):
+        hunk = Hunk(
+            header="@@ -1,2 +1,2 @@",
+            old_start=1,
+            old_count=2,
+            new_start=1,
+            new_count=2,
+            lines=[
+                DiffLine(kind=DiffLineKind.CONTEXT, text="class A {"),
+                DiffLine(kind=DiffLineKind.ADDED, text="    int x = 1;"),
+            ],
+        )
+        file_context = make_file_with_items("a/A.java", ["a1"])
+        file_context = file_context.model_copy(
+            update={
+                "file_diff": file_context.file_diff.model_copy(
+                    update={"hunks": [hunk]}
+                )
+            }
+        )
+        results = apply_context_budget_to_files(
+            [file_context], multi_budget(min_file_chars=10, max_total_chars=10)
+        )
+        assert results[0].file_diff.hunks == [hunk]
+
+    def test_changed_only_overflow_is_recorded_not_broken(self):
+        method_code = "m" * 400
+        files = [
+            make_file_with_items("a/A.java", ["a1"], method_code=method_code),
+            make_file_with_items("b/B.java", ["b1"], method_code=method_code),
+        ]
+        results = apply_context_budget_to_files(
+            files, multi_budget(min_file_chars=50, max_total_chars=500)
+        )
+        for file_context in results:
+            assert file_context.related_code == []
+            assert REASON_CHANGED_TOTAL_OVERFLOW in file_context.truncation.reasons
+            assert file_context.truncation.applied is True
+        assert aggregate_stats(results).prompt_chars > 500
+
+    def test_output_order_matches_input(self):
+        files = [
+            make_file_with_items("c/C.java", ["c1"]),
+            make_file_with_items("a/A.java", ["a1"]),
+            make_file_with_items("b/B.java", ["b1"]),
+        ]
+        results = apply_context_budget_to_files(
+            files, multi_budget(max_total_chars=10**6)
+        )
+        assert [f.file_diff.path for f in results] == [
+            "c/C.java",
+            "a/A.java",
+            "b/B.java",
+        ]
+
+    def test_inputs_are_not_mutated(self):
+        files = [
+            make_file_with_items("a/A.java", ["a1", "a2"]),
+            make_file_with_items("b/B.java", ["b1"]),
+        ]
+        before = [f.model_dump() for f in files]
+        grouped = aggregate_stats(files).prompt_chars
+        apply_context_budget_to_files(
+            files, multi_budget(min_file_chars=50, max_total_chars=grouped - 30)
+        )
+        assert [f.model_dump() for f in files] == before
+        assert files[0].stats is None
+        assert files[0].truncation is None
+
+    def test_repeated_execution_is_stable(self):
+        files = [
+            make_file_with_items("a/A.java", ["a1", "a2", "a3"]),
+            make_file_with_items("b/B.java", ["b1", "b2", "b3"]),
+        ]
+        budget = multi_budget(
+            min_file_chars=50,
+            max_total_chars=aggregate_stats(files).prompt_chars - 60,
+        )
+        first = apply_context_budget_to_files(files, budget)
+        second = apply_context_budget_to_files(first, budget)
+        assert second == first
+
+    def test_changed_overflow_is_stable_on_repeat(self):
+        method_code = "m" * 400
+        files = [make_file_with_items("a/A.java", [], method_code=method_code)]
+        budget = multi_budget(min_file_chars=50, max_total_chars=100)
+        first = apply_context_budget_to_files(files, budget)
+        second = apply_context_budget_to_files(first, budget)
+        assert second == first
+        assert REASON_CHANGED_TOTAL_OVERFLOW in first[0].truncation.reasons
+
+    def test_stats_reflect_the_group_cuts(self):
+        low = make_file_with_items("a/A.java", ["low1", "low2"])
+        high = make_heavy_file("b/B.java")
+        results = apply_context_budget_to_files(
+            [low, high], multi_budget(min_file_chars=50, max_total_chars=400)
+        )
+        assert results[0].stats.related_total == 2
+        assert results[0].stats.related_kept == 0
+        assert results[0].stats.related_dropped == 2
+        assert results[0].stats.truncated_items == 0
+        assert results[0].stats.prompt_chars == measure_context(
+            results[0]
+        ).prompt_chars
+        assert results[1].stats.related_total == 0
+        assert results[1].stats.prompt_chars == measure_context(
+            results[1]
+        ).prompt_chars
+
+
+class TestAggregateStats:
+    def test_empty_list(self):
+        stats = aggregate_stats([])
+        assert stats.prompt_chars == 0
+        assert stats.prompt_chars_by_kind == {}
+        assert stats.estimated_tokens == 0
+        assert stats.related_total == 0
+        assert stats.related_kept == 0
+        assert stats.related_dropped == 0
+        assert stats.truncated_items == 0
+        assert stats.retained_source_chars == 0
+
+    def test_sums_every_field(self):
+        first = make_multi_file("a/A.java").model_copy(
+            update={
+                "stats": ContextStats(
+                    prompt_chars=100,
+                    prompt_chars_by_kind={"diff": 40, "metadata": 60},
+                    estimated_tokens=30,
+                    related_total=2,
+                    related_kept=1,
+                    related_dropped=1,
+                    truncated_items=1,
+                    retained_source_chars=500,
+                )
+            }
+        )
+        second = make_multi_file("b/B.java").model_copy(
+            update={
+                "stats": ContextStats(
+                    prompt_chars=50,
+                    prompt_chars_by_kind={"diff": 10, "related": 40},
+                    estimated_tokens=15,
+                    related_total=1,
+                    related_kept=1,
+                    related_dropped=0,
+                    truncated_items=0,
+                    retained_source_chars=200,
+                )
+            }
+        )
+        stats = aggregate_stats([first, second])
+        assert stats.prompt_chars == 150
+        assert stats.estimated_tokens == 45
+        assert stats.related_total == 3
+        assert stats.related_kept == 2
+        assert stats.related_dropped == 1
+        assert stats.truncated_items == 1
+        assert stats.retained_source_chars == 700
+
+    def test_kind_keys_merge_in_first_seen_order(self):
+        first = make_multi_file("a/A.java").model_copy(
+            update={
+                "stats": ContextStats(
+                    prompt_chars=10,
+                    prompt_chars_by_kind={"diff": 4, "metadata": 6},
+                )
+            }
+        )
+        second = make_multi_file("b/B.java").model_copy(
+            update={
+                "stats": ContextStats(
+                    prompt_chars=4,
+                    prompt_chars_by_kind={"related": 3, "diff": 1},
+                )
+            }
+        )
+        stats = aggregate_stats([first, second])
+        assert stats.prompt_chars_by_kind == {
+            "diff": 5,
+            "metadata": 6,
+            "related": 3,
+        }
+        assert list(stats.prompt_chars_by_kind) == ["diff", "metadata", "related"]
+
+    def test_missing_stats_are_measured(self):
+        files = [make_file_with_items("a/A.java", ["a1"])]
+        expected = measure_context(files[0])
+        stats = aggregate_stats(files)
+        assert stats.prompt_chars == expected.prompt_chars
+        assert stats.prompt_chars_by_kind == expected.prompt_chars_by_kind
+        assert stats.related_total == 1
+
+    def test_mixed_missing_and_present_stats(self):
+        measured_file = make_file_with_items("a/A.java", ["a1"])
+        measured = measure_context(measured_file)
+        with_stats = make_multi_file("b/B.java").model_copy(
+            update={"stats": ContextStats(prompt_chars=10)}
+        )
+        stats = aggregate_stats([with_stats, measured_file])
+        assert stats.prompt_chars == 10 + measured.prompt_chars
+
+    def test_measurement_does_not_attach_stats(self):
+        files = [make_file_with_items("a/A.java", ["a1"])]
+        aggregate_stats(files)
+        assert files[0].stats is None
+
+    def test_inputs_are_not_modified(self):
+        file_context = make_file_with_items("a/A.java", ["a1"]).model_copy(
+            update={"stats": ContextStats(prompt_chars=10)}
+        )
+        before = file_context.model_dump()
+        aggregate_stats([file_context])
+        assert file_context.model_dump() == before
+
+    def test_prompt_chars_equals_the_kind_sum(self):
+        files = [
+            make_file_with_items("a/A.java", ["a1"]),
+            make_file_with_items("b/B.java", ["b1"]),
+        ]
+        stats = aggregate_stats(files)
+        assert stats.prompt_chars == sum(stats.prompt_chars_by_kind.values())
+
+
+class TestMultiFileIntegration:
+    def build_real_files(self, paths):
+        from app.context.class_context_builder import attach_class_contexts
+        from app.context.file_context_builder import build_file_context
+        from app.context.method_context_builder import (
+            attach_method_contexts,
+            find_methods,
+        )
+        from app.context.related_code_builder import build_related_code
+
+        root = pathlib.Path(__file__).resolve().parents[2]
+        files = []
+        for relative in paths:
+            source = (root / relative).read_text(encoding="utf-8")
+            language = (
+                Language.PYTHON if relative.endswith(".py") else Language.JAVA
+            )
+            methods = find_methods(source, language)
+            target = methods[len(methods) // 2]
+            line = (target.start_line + target.end_line) // 2
+            diff = FileDiff(
+                path=relative,
+                status=FileStatus.MODIFIED,
+                language=language,
+                changed_ranges=[ChangedRange(start_line=line, end_line=line)],
+                additions=1,
+                deletions=1,
+                patch_available=True,
+            )
+            context = attach_class_contexts(
+                attach_method_contexts(
+                    build_file_context(
+                        diff, FileContent(path=relative, content=source)
+                    )
+                )
+            )
+            files.append(
+                context.model_copy(
+                    update={"related_code": build_related_code(context)}
+                )
+            )
+        return files
+
+    def test_real_multi_file_pipeline(self):
+        files = self.build_real_files(
+            [
+                "agent/app/context/related_code_builder.py",
+                "agent/app/context/class_context_builder.py",
+            ]
+        )
+        results = apply_context_budget_to_files(files, DEFAULT_BUDGET)
+        assert [f.file_diff.path for f in results] == [
+            f.file_diff.path for f in files
+        ]
+        assert aggregate_stats(results).prompt_chars > 0
+        for file_context in results:
+            assert file_context.methods
+
+    def test_real_multi_file_tight_total(self):
+        files = self.build_real_files(
+            [
+                "agent/app/context/related_code_builder.py",
+                "agent/app/context/class_context_builder.py",
+            ]
+        )
+        grouped = aggregate_stats(files).prompt_chars
+        budget = multi_budget(
+            min_file_chars=200, max_total_chars=grouped // 2
+        )
+        results = apply_context_budget_to_files(files, budget)
+        total = aggregate_stats(results).prompt_chars
+        exhausted = all(f.related_code == [] for f in results)
+        assert total <= budget.max_total_chars or exhausted
+        assert all(f.methods for f in results)
+        again = apply_context_budget_to_files(results, budget)
+        assert again == results

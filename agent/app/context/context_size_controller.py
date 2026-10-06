@@ -11,10 +11,12 @@ method code, related code and a little metadata. The full file source and
 the class bodies kept for later snippet building are reported separately
 as retained_source_chars and are never budgeted.
 
-Only a single FileContext is handled. Spreading a budget over several
-files (max_total_chars) is a later Phase 6.6 step and must not be added
-here. Every function is pure: no IO, no third party dependency and no
-mutation of the input.
+One FileContext can be budgeted on its own, and several can be budgeted
+together: plan_file_budgets spreads a total over files by weight,
+apply_context_budget_to_files runs the single file controller and then
+trims the least important related items until the group fits, and
+aggregate_stats sums the per-file results. Every function is pure: no IO,
+no third party dependency and no mutation of the input.
 
 Trimming rules: related code is dropped whole by priority, except a
 NESTED_TYPE whose body exceeds max_item_chars, which degrades to its
@@ -50,6 +52,8 @@ REASON_ITEM_OVERFLOW = "single item exceeds max_item_chars"
 REASON_RELATED_BUDGET = "related budget exceeded"
 REASON_FILE_BUDGET = "file budget exceeded"
 REASON_CHANGED_OVERFLOW = "changed code exceeds file budget"
+REASON_TOTAL_BUDGET = "total budget exceeded"
+REASON_CHANGED_TOTAL_OVERFLOW = "changed code exceeds total budget"
 
 _PAYLOAD_ORDER = ("metadata", "diff", "changed_methods", "related")
 
@@ -417,3 +421,318 @@ def _describe(item: RelatedCodeContext) -> str:
 def _add_reason(reasons: list[str], reason: str) -> None:
     if reason not in reasons:
         reasons.append(reason)
+
+
+def plan_file_budgets(
+    weights: list[int], budget: ContextBudget | None = None
+) -> list[ContextBudget]:
+    """Split one ContextBudget over several files by weight.
+
+    Every returned budget keeps the item and related limits of the given
+    budget while max_file_chars becomes that file's share. The floor is
+    reserved first, so a total large enough for every floor honors all of
+    them and the rest is handed out by weight; a total too small for the
+    floors degrades deterministically in weight order instead of guessing.
+    Output order always matches the input order, and the input is not
+    modified.
+    """
+    limits = budget if budget is not None else DEFAULT_BUDGET
+    count = len(weights)
+    if count == 0:
+        return []
+
+    normalized = [max(1, int(weight)) for weight in weights]
+    max_file = limits.max_file_chars
+    floor = min(limits.min_file_chars, max_file)
+
+    if limits.max_total_chars is None:
+        caps = [max_file] * count
+    else:
+        total = limits.max_total_chars
+        if total >= floor * count:
+            caps = [floor] * count
+            extra_pool = total - floor * count
+            weight_sum = sum(normalized)
+            caps = [
+                floor + extra_pool * weight // weight_sum
+                for weight in normalized
+            ]
+            caps = [min(cap, max_file) for cap in caps]
+            leftover = total - sum(caps)
+            for index in _weight_order(normalized):
+                if leftover <= 0:
+                    break
+                take = min(max_file - caps[index], leftover)
+                caps[index] += take
+                leftover -= take
+        else:
+            caps = [0] * count
+            remaining = total
+            for index in _weight_order(normalized):
+                take = min(floor, remaining)
+                caps[index] = take
+                remaining -= take
+                if remaining <= 0:
+                    break
+
+    return [
+        limits.model_copy(
+            update={
+                "max_file_chars": cap,
+                "max_related_chars": min(limits.max_related_chars, cap),
+            }
+        )
+        for cap in caps
+    ]
+
+
+def apply_context_budget_to_files(
+    files: list[FileContext], budget: ContextBudget | None = None
+) -> list[FileContext]:
+    """Budget several FileContexts as one group.
+
+    Phase one plans a per-file budget from the file weights, phase two
+    applies it with the single file controller, and when max_total_chars
+    is set phase three keeps dropping the least important related items
+    until the group fits. Changed code and diff hunks are never removed.
+    Inputs are not mutated and the output order matches the input order.
+    """
+    limits = budget if budget is not None else DEFAULT_BUDGET
+    weights = [
+        max(1, 1 + len(file_context.methods)) for file_context in files
+    ]
+    plans = plan_file_budgets(weights, limits)
+    results = [
+        apply_context_budget(file_context, plan)
+        for file_context, plan in zip(files, plans)
+    ]
+
+    if limits.max_total_chars is None:
+        return results
+
+    return _reduce_total(files, results, weights, limits)
+
+
+def aggregate_stats(files: list[FileContext]) -> ContextStats:
+    """Sum the stats of several FileContexts.
+
+    A FileContext that has no stats yet is measured on the fly, the same
+    way the single file controller treats a missing record, so the result
+    is always the size of the given contexts. Kind keys merge in first
+    seen order and no input is modified.
+    """
+    totals = {
+        "prompt_chars": 0,
+        "estimated_tokens": 0,
+        "related_total": 0,
+        "related_kept": 0,
+        "related_dropped": 0,
+        "truncated_items": 0,
+        "retained_source_chars": 0,
+    }
+    prompt_chars_by_kind: dict[str, int] = {}
+
+    for file_context in files:
+        stats = file_context.stats
+        if stats is None:
+            stats = measure_context(file_context)
+        for name in totals:
+            totals[name] += getattr(stats, name)
+        for kind, value in stats.prompt_chars_by_kind.items():
+            prompt_chars_by_kind[kind] = (
+                prompt_chars_by_kind.get(kind, 0) + value
+            )
+
+    return ContextStats(
+        prompt_chars=totals["prompt_chars"],
+        prompt_chars_by_kind=prompt_chars_by_kind,
+        estimated_tokens=totals["estimated_tokens"],
+        related_total=totals["related_total"],
+        related_kept=totals["related_kept"],
+        related_dropped=totals["related_dropped"],
+        truncated_items=totals["truncated_items"],
+        retained_source_chars=totals["retained_source_chars"],
+    )
+
+
+def _reduce_total(
+    sources: list[FileContext],
+    files: list[FileContext],
+    weights: list[int],
+    limits: ContextBudget,
+) -> list[FileContext]:
+    """Global second pass: drop related items until the group fits.
+
+    Candidates are ordered by file weight ascending, then by input index
+    descending, then by related priority ascending, which drops from the
+    least important file and, inside it, from the least useful item first.
+    """
+    total_limit = limits.max_total_chars
+    if total_limit is None or not files:
+        return files
+
+    if _group_prompt_chars(files) <= total_limit:
+        return files
+
+    candidates: list[tuple] = []
+    for index, (file_context, weight) in enumerate(zip(files, weights)):
+        for item in file_context.related_code:
+            candidates.append(
+                (
+                    weight,
+                    -index,
+                    _drop_key(item, file_context.file_diff.changed_ranges),
+                    index,
+                    item,
+                )
+            )
+    candidates.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+
+    remaining = [list(file_context.related_code) for file_context in files]
+    dropped: list[list[RelatedCodeContext]] = [[] for _ in files]
+    dropped_keys: list[set[tuple[str, int, int]]] = [set() for _ in files]
+
+    cursor = 0
+    while cursor < len(candidates):
+        if _group_prompt_chars_with(files, remaining) <= total_limit:
+            break
+        _, _, _, index, item = candidates[cursor]
+        cursor += 1
+        key = (item.name, item.start_line, item.end_line)
+        if key in dropped_keys[index]:
+            continue
+        dropped_keys[index].add(key)
+        remaining[index] = [
+            candidate
+            for candidate in remaining[index]
+            if (candidate.name, candidate.start_line, candidate.end_line) != key
+        ]
+        dropped[index].append(item)
+
+    results = list(files)
+    for index, file_context in enumerate(files):
+        if not dropped[index]:
+            continue
+        truncation = _merge_truncation(
+            file_context.truncation,
+            sum(len(item.code) for item in dropped[index]),
+            [REASON_TOTAL_BUDGET],
+            [_describe(item) for item in dropped[index]],
+        )
+        updated = file_context.model_copy(
+            update={
+                "related_code": remaining[index],
+                "truncation": truncation,
+            }
+        )
+        stats = measure_context(updated).model_copy(
+            update={
+                "related_total": len(sources[index].related_code),
+                "related_kept": len(remaining[index]),
+                "related_dropped": len(sources[index].related_code)
+                - len(remaining[index]),
+                "truncated_items": sum(
+                    1 for item in remaining[index] if item.truncated
+                ),
+            }
+        )
+        results[index] = updated.model_copy(update={"stats": stats})
+
+    if _group_prompt_chars(results) > total_limit:
+        _record_total_overflow(results)
+
+    return results
+
+
+def _group_prompt_chars(files: list[FileContext]) -> int:
+    return aggregate_stats(files).prompt_chars
+
+
+def _group_prompt_chars_with(
+    files: list[FileContext],
+    remaining: list[list[RelatedCodeContext]],
+) -> int:
+    return sum(
+        measure_context(
+            file_context.model_copy(update={"related_code": items})
+        ).prompt_chars
+        for file_context, items in zip(files, remaining)
+    )
+
+
+def _record_total_overflow(files: list[FileContext]) -> None:
+    """Record that changed code alone exceeds the total budget.
+
+    The reason lands on every file that carries changed methods, because
+    those are the ones the group cannot shrink further; a group without
+    changed methods records it on the first file so nothing is silent.
+    """
+    recorded = False
+    for index, file_context in enumerate(files):
+        if not file_context.methods:
+            continue
+        files[index] = file_context.model_copy(
+            update={
+                "truncation": _merge_truncation(
+                    file_context.truncation,
+                    0,
+                    [REASON_TOTAL_BUDGET, REASON_CHANGED_TOTAL_OVERFLOW],
+                    [],
+                )
+            }
+        )
+        recorded = True
+
+    if not recorded and files:
+        files[0] = files[0].model_copy(
+            update={
+                "truncation": _merge_truncation(
+                    files[0].truncation,
+                    0,
+                    [REASON_TOTAL_BUDGET, REASON_CHANGED_TOTAL_OVERFLOW],
+                    [],
+                )
+            }
+        )
+
+
+def _merge_truncation(
+    previous: Truncation | None,
+    removed_chars: int,
+    reasons: list[str],
+    dropped_items: list[str],
+) -> Truncation:
+    """Extend a truncation record without losing earlier entries."""
+    base = previous if previous is not None else Truncation()
+    merged_reasons = list(base.reasons)
+    for reason in reasons:
+        _add_reason(merged_reasons, reason)
+
+    return base.model_copy(
+        update={
+            "applied": True,
+            "reasons": merged_reasons,
+            "dropped_items": list(base.dropped_items) + list(dropped_items),
+            "removed_chars": base.removed_chars + removed_chars,
+        }
+    )
+
+
+def _weight_order(weights: list[int]) -> list[int]:
+    """File indexes by importance: heavier first, then input order."""
+    return sorted(range(len(weights)), key=lambda index: (-weights[index], index))
+
+
+def _drop_key(item: RelatedCodeContext, changed_ranges: list) -> tuple:
+    """Ascending order of least important first, the inverse of keep order."""
+    reason_rank, kind_rank, negative_confidence, proximity, start_line, name = (
+        _priority_key(item, changed_ranges)
+    )
+    return (
+        -reason_rank,
+        -kind_rank,
+        -negative_confidence,
+        -proximity,
+        -start_line,
+        name,
+    )
