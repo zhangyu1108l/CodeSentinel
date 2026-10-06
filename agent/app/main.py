@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.review_router import router as review_router
 from app.config.settings import settings
 
 logging.basicConfig(
@@ -25,6 +26,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.include_router(review_router)
 
 
 @app.get("/health")
