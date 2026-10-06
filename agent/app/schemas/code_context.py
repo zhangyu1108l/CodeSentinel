@@ -141,16 +141,34 @@ class FileDiff(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class FileContent(BaseModel):
+    """Full source of one file at the reviewed revision.
+
+    path is the new-side path used to join this content with a FileDiff.
+    content is None whenever the source could not be read, and error then
+    carries the reason so the builder can record it instead of failing.
+    Callers must never log content: it is untrusted user source code.
+    """
+
+    path: str
+    revision: str | None = None
+    content: str | None = None
+    error: str | None = None
+
+
 class FileContext(BaseModel):
     """Everything known about one changed file.
 
     structure, snippets and changed_symbols stay empty until the file
     content is available; skipped_reason explains why a file was not
-    analyzed at all.
+    analyzed at all. line_count follows the Git line model and is the
+    basis for locating symbols in later Phase 6 steps.
     """
 
     file_diff: FileDiff
     structure: FileStructure | None = None
+    content: FileContent | None = None
+    line_count: int = 0
     content_available: bool = False
     changed_symbols: list[SymbolRef] = Field(default_factory=list)
     enclosing_class: str | None = None

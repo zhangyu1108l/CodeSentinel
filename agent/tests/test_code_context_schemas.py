@@ -1,4 +1,4 @@
-"""Tests for the Phase 6.1 Code Context data contract."""
+"""Tests for the Phase 6 Code Context data contract."""
 
 import pytest
 from pydantic import ValidationError
@@ -9,6 +9,7 @@ from app.schemas.code_context import (
     CodeSnippet,
     DiffLine,
     DiffLineKind,
+    FileContent,
     FileContext,
     FileDiff,
     FileStatus,
@@ -72,6 +73,16 @@ def make_file_diff(**overrides):
     }
     data.update(overrides)
     return FileDiff(**data)
+
+
+def make_file_content(**overrides):
+    data = {
+        "path": "src/main/java/cn/UserRepository.java",
+        "revision": "def456",
+        "content": "package cn.codesentinel;\n",
+    }
+    data.update(overrides)
+    return FileContent(**data)
 
 
 def make_file_context(**overrides):
@@ -371,6 +382,52 @@ class TestFileDiff:
         assert diff.hunks == []
 
 
+class TestFileContent:
+    def test_path_is_required(self):
+        with pytest.raises(ValidationError):
+            FileContent()
+
+    def test_defaults(self):
+        content = FileContent(path="src/main/java/cn/Demo.java")
+        assert content.revision is None
+        assert content.content is None
+        assert content.error is None
+
+    def test_minimal_construction(self):
+        content = FileContent(path="agent/app/demo.py", content="import os\n")
+        assert content.path == "agent/app/demo.py"
+        assert content.content == "import os\n"
+
+    def test_empty_content_is_allowed(self):
+        content = FileContent(path="agent/app/empty.py", content="")
+        assert content.content == ""
+        assert content.content is not None
+
+    def test_unavailable_content_with_error(self):
+        content = FileContent(
+            path="agent/app/legacy.py", content=None, error="404 from contents api"
+        )
+        assert content.content is None
+        assert content.error == "404 from contents api"
+
+    def test_invalid_path_type(self):
+        with pytest.raises(ValidationError):
+            FileContent(path=None)
+
+    def test_invalid_content_type(self):
+        with pytest.raises(ValidationError):
+            FileContent(path="a/A.java", content=123)
+
+    def test_round_trip_model_validate(self):
+        content = make_file_content()
+        assert FileContent.model_validate(content.model_dump()) == content
+
+    def test_json_dump(self):
+        data = make_file_content().model_dump(mode="json")
+        assert data["revision"] == "def456"
+        assert data["content"] == "package cn.codesentinel;\n"
+
+
 class TestFileContext:
     def test_file_diff_is_required(self):
         with pytest.raises(ValidationError):
@@ -379,6 +436,8 @@ class TestFileContext:
     def test_defaults(self):
         context = make_file_context()
         assert context.structure is None
+        assert context.content is None
+        assert context.line_count == 0
         assert context.content_available is False
         assert context.changed_symbols == []
         assert context.enclosing_class is None
@@ -390,6 +449,40 @@ class TestFileContext:
         context = make_file_context()
         assert context.file_diff.language is Language.JAVA
         assert context.file_diff.changed_ranges[0].end_line == 49
+
+    def test_with_content(self):
+        context = make_file_context(
+            content=make_file_content(), line_count=1, content_available=True
+        )
+        assert context.content_available is True
+        assert context.line_count == 1
+        assert context.content.path == context.file_diff.path
+        assert context.content.revision == "def456"
+
+    def test_content_accepts_dict(self):
+        context = make_file_context(
+            content={"path": "src/main/java/cn/UserRepository.java", "content": "x"}
+        )
+        assert isinstance(context.content, FileContent)
+        assert context.content.content == "x"
+
+    def test_unavailable_content_with_error(self):
+        context = make_file_context(
+            content=FileContent(
+                path="src/main/java/cn/UserRepository.java",
+                content=None,
+                error="too large",
+            ),
+            content_available=False,
+            skipped_reason="file content unavailable",
+        )
+        assert context.content_available is False
+        assert context.line_count == 0
+        assert context.content.error == "too large"
+
+    def test_invalid_content_type(self):
+        with pytest.raises(ValidationError):
+            make_file_context(content="not-a-file-content")
 
     def test_with_structure_and_snippets(self):
         context = make_file_context(
@@ -473,6 +566,22 @@ class TestCodeContext:
     def test_round_trip_model_validate(self):
         context = make_code_context()
         assert CodeContext.model_validate(context.model_dump()) == context
+
+    def test_round_trip_with_file_content(self):
+        context = make_code_context(
+            files=[
+                make_file_context(
+                    content=make_file_content(),
+                    line_count=1,
+                    content_available=True,
+                )
+            ]
+        )
+        restored = CodeContext.model_validate(context.model_dump(mode="json"))
+        assert restored.files[0].content_available is True
+        assert restored.files[0].line_count == 1
+        assert restored.files[0].content.content == "package cn.codesentinel;\n"
+        assert restored.files[0].content.revision == "def456"
 
     def test_json_dump_uses_string_enums(self):
         data = make_code_context().model_dump(mode="json")
