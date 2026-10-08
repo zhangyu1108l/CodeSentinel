@@ -5,7 +5,8 @@ public class Phase6Sample {
     private int[] values = new int[0];
 
     public int lastValue() {
-        return values[values.length - 1];
+        int index = values.length - 1;
+        return values[index];
     }
 
     public int firstValue() {
