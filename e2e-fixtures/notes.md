@@ -3,4 +3,4 @@
 This markdown file exercises the unsupported-language branch
 (content_reason=unsupported_language) of the PR context pipeline.
 
-Degraded drill marker: context endpoint expected to fail.
+Recovery marker: context endpoint restored.
