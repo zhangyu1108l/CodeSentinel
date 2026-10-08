@@ -14,6 +14,7 @@ class JavaServiceClient:
 
     def mark_running(self, task_id: int) -> None:
         url = f"{self.base_url}/api/tasks/{task_id}/running"
+        # E2E fixture: touched to exercise modified-file context.
         try:
             resp = httpx.post(url, timeout=10)
             resp.raise_for_status()
