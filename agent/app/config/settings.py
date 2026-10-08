@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     REDIS_TASK_QUEUE: str = "codesentinel:review:tasks"
 
     JAVA_SERVICE_URL: str = "http://localhost:8080"
+    PR_CONTEXT_TIMEOUT: float = 30
     AI_SERVICE_URL: str = "http://localhost:8000"
     AI_SERVICE_TIMEOUT: float = 120
     REVIEW_TASK_MAX_RETRIES: int = 3

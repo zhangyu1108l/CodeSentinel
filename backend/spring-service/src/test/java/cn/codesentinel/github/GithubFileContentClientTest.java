@@ -12,8 +12,11 @@ import org.springframework.web.client.RestClient;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+import org.springframework.web.util.UriUtils;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
@@ -22,15 +25,17 @@ class GithubFileContentClientTest {
 
     private static final String TEST_API_URL = "https://api.github.com";
     private static final String TEST_TOKEN = "ghs_test-token";
+    private static final InstallationToken TOKEN =
+            new InstallationToken(TEST_TOKEN, "2025-01-01T00:00:00Z");
 
     private MockRestServiceServer mockServer;
+    private GithubAuthService authService;
     private GithubFileContentClient fileContentClient;
 
     @BeforeEach
     void setUp() {
-        GithubAuthService authService = mock(GithubAuthService.class);
-        when(authService.getInstallationToken())
-                .thenReturn(new InstallationToken(TEST_TOKEN, "2025-01-01T00:00:00Z"));
+        authService = mock(GithubAuthService.class);
+        when(authService.getInstallationToken()).thenReturn(TOKEN);
 
         RestClient.Builder apiBuilder = RestClient.builder();
         mockServer = MockRestServiceServer.bindTo(apiBuilder).build();
@@ -299,5 +304,207 @@ class GithubFileContentClientTest {
         byte[] raw = text.getBytes(StandardCharsets.UTF_8);
         String b64 = Base64.getEncoder().encodeToString(raw);
         return b64.replaceAll("(.{60})", "$1\n").replace("\n", "\\n");
+    }
+
+    @Test
+    void shouldRejectEncodingNone() {
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "none",
+                    "size": 2000000,
+                    "content": "",
+                    "path": "big.bin"
+                }""";
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/big.bin?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", "big.bin", "abc");
+
+        assertNull(result.content());
+        assertEquals(FileContent.REASON_TOO_LARGE, result.contentReason());
+    }
+
+    @Test
+    void shouldRejectContentLargerThanMaxBytes() {
+        String encoded = encodeGitHubStyle("small text");
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "size": 5000,
+                    "content": "%s",
+                    "path": "big.java"
+                }""".formatted(encoded);
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/big.java?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", "big.java", "abc", TOKEN, 1000);
+
+        assertNull(result.content());
+        assertEquals(FileContent.REASON_TOO_LARGE, result.contentReason());
+    }
+
+    @Test
+    void shouldRejectContentWhoseDecodedSizeExceedsMaxBytes() {
+        String encoded = Base64.getEncoder().encodeToString(
+                "x".repeat(200).getBytes(StandardCharsets.UTF_8));
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "content": "%s",
+                    "path": "unknown-size.java"
+                }""".formatted(encoded);
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/unknown-size.java?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", "unknown-size.java", "abc", TOKEN, 100);
+
+        assertNull(result.content());
+        assertEquals(FileContent.REASON_TOO_LARGE, result.contentReason());
+    }
+
+    @Test
+    void shouldRejectBinaryContentWithNulByte() {
+        byte[] raw = new byte[] {65, 0, 66};
+        String encoded = Base64.getEncoder().encodeToString(raw);
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "content": "%s",
+                    "path": "binary.dat"
+                }""".formatted(encoded);
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/binary.dat?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", "binary.dat", "abc");
+
+        assertNull(result.content());
+        assertEquals(FileContent.REASON_BINARY, result.contentReason());
+    }
+
+    @Test
+    void shouldRejectNonBase64Encoding() {
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "utf-8",
+                    "content": "plain",
+                    "path": "odd.txt"
+                }""";
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/odd.txt?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", "odd.txt", "abc");
+
+        assertNull(result.content());
+        assertEquals(FileContent.REASON_BINARY, result.contentReason());
+    }
+
+    @Test
+    void shouldKeepLegitimateEmptyFileAvailable() {
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "size": 0,
+                    "content": "",
+                    "path": "empty.txt"
+                }""";
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/empty.txt?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", "empty.txt", "abc");
+
+        assertEquals("", result.content());
+        assertNull(result.contentReason());
+    }
+
+    @Test
+    void shouldEncodeSpecialCharactersInPath() {
+        String path = "docs/src file#1/中文.java";
+        String content = "class Comment {}";
+        String encoded = Base64.getEncoder().encodeToString(
+                content.getBytes(StandardCharsets.UTF_8));
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "content": "%s",
+                    "path": "%s"
+                }""".formatted(encoded, path);
+
+        String expectedUri = TEST_API_URL + "/repos/o/r/contents/docs/"
+                + UriUtils.encodePathSegment("src file#1", StandardCharsets.UTF_8)
+                + "/"
+                + UriUtils.encodePathSegment("中文.java", StandardCharsets.UTF_8)
+                + "?ref=abc";
+
+        mockServer.expect(request -> assertEquals(expectedUri,
+                        request.getURI().toString()))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        FileContent result = fileContentClient.getFileContent(
+                "o", "r", path, "abc");
+
+        assertEquals(path, result.path());
+        assertEquals(content, result.content());
+        assertNull(result.contentReason());
+    }
+
+    @Test
+    void shouldThrowOn403() {
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/secret.java?ref=abc"))
+                .andRespond(withStatus(org.springframework.http.HttpStatus.FORBIDDEN)
+                        .body("{\"message\":\"Forbidden\"}")
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        GithubApiException ex = assertThrows(GithubApiException.class, () ->
+                fileContentClient.getFileContent("o", "r", "secret.java", "abc"));
+
+        assertEquals(403, ex.getStatusCode());
+        assertTrue(ex.isClientError());
+    }
+
+    @Test
+    void shouldNotAskAuthServiceWhenTokenProvided() {
+        String encoded = encodeGitHubStyle("x");
+        String responseBody = """
+                {
+                    "type": "file",
+                    "encoding": "base64",
+                    "content": "%s",
+                    "path": "f.java"
+                }""".formatted(encoded);
+
+        mockServer.expect(requestTo(TEST_API_URL
+                        + "/repos/o/r/contents/f.java?ref=abc"))
+                .andRespond(withSuccess(responseBody, MediaType.APPLICATION_JSON));
+
+        fileContentClient.getFileContent("o", "r", "f.java", "abc", TOKEN, 1000);
+
+        verifyNoInteractions(authService);
     }
 }
