@@ -11,6 +11,7 @@ from app.context.context_size_controller import (
     REASON_RELATED_BUDGET,
     REASON_TOTAL_BUDGET,
     aggregate_stats,
+    aggregate_truncation,
     apply_context_budget,
     apply_context_budget_to_files,
     budget_from_tokens,
@@ -1581,6 +1582,84 @@ class TestAggregateStats:
         ]
         stats = aggregate_stats(files)
         assert stats.prompt_chars == sum(stats.prompt_chars_by_kind.values())
+
+
+class TestAggregateTruncation:
+    def test_empty_list(self):
+        assert aggregate_truncation([]) == Truncation()
+
+    def test_files_without_records_contribute_nothing(self):
+        files = [make_multi_file("a/A.java"), make_multi_file("b/B.java")]
+        assert aggregate_truncation(files) == Truncation()
+
+    def test_sums_and_ors_records_in_file_order(self):
+        first = make_multi_file("a/A.java").model_copy(
+            update={
+                "truncation": Truncation(
+                    applied=True,
+                    reasons=["related budget exceeded"],
+                    dropped_items=["related:METHOD:a (1-1)"],
+                    removed_chars=10,
+                )
+            }
+        )
+        second = make_multi_file("b/B.java").model_copy(
+            update={
+                "truncation": Truncation(
+                    applied=False,
+                    reasons=["total budget exceeded"],
+                    trimmed_items=["related:NESTED_TYPE:N (2-3 -> 2-2)"],
+                    removed_chars=5,
+                )
+            }
+        )
+
+        record = aggregate_truncation([first, second])
+
+        assert record.applied is True
+        assert record.reasons == [
+            "related budget exceeded",
+            "total budget exceeded",
+        ]
+        assert record.dropped_items == ["related:METHOD:a (1-1)"]
+        assert record.trimmed_items == ["related:NESTED_TYPE:N (2-3 -> 2-2)"]
+        assert record.removed_chars == 15
+
+    def test_reasons_are_deduplicated_first_seen(self):
+        first = make_multi_file("a/A.java").model_copy(
+            update={
+                "truncation": Truncation(
+                    applied=True, reasons=["related budget exceeded"]
+                )
+            }
+        )
+        second = make_multi_file("b/B.java").model_copy(
+            update={
+                "truncation": Truncation(
+                    applied=True,
+                    reasons=["related budget exceeded", "file budget exceeded"],
+                )
+            }
+        )
+
+        record = aggregate_truncation([first, second])
+
+        assert record.reasons == [
+            "related budget exceeded",
+            "file budget exceeded",
+        ]
+
+    def test_inputs_are_not_modified(self):
+        files = [
+            make_multi_file("a/A.java").model_copy(
+                update={
+                    "truncation": Truncation(applied=True, removed_chars=3)
+                }
+            )
+        ]
+        before = files[0].model_dump()
+        aggregate_truncation(files)
+        assert files[0].model_dump() == before
 
 
 class TestMultiFileIntegration:

@@ -26,6 +26,13 @@ management:
 review:
   task:
     max-retries: ${REVIEW_TASK_MAX_RETRIES:3}
+  context:
+    max-files: ${REVIEW_CONTEXT_MAX_FILES:50}
+    max-file-bytes: ${REVIEW_CONTEXT_MAX_FILE_BYTES:262144}
+    max-fetch-pages: ${REVIEW_CONTEXT_MAX_FETCH_PAGES:5}
+    include-content-extensions:
+      - java
+      - py
 
 github:
   app:

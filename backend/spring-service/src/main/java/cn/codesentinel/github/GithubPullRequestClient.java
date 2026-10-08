@@ -19,8 +19,12 @@ public class GithubPullRequestClient {
     }
 
     public PullRequest getPullRequest(String owner, String repo, int pullNumber) {
-        InstallationToken token = authService.getInstallationToken();
+        return getPullRequest(owner, repo, pullNumber,
+                authService.getInstallationToken());
+    }
 
+    public PullRequest getPullRequest(String owner, String repo, int pullNumber,
+                                      InstallationToken token) {
         log.debug("Fetching pull request {}/{}/pulls/{}", owner, repo, pullNumber);
 
         return apiClient.getRestClient()

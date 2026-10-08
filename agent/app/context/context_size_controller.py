@@ -639,6 +639,41 @@ def budget_from_tokens(
     return source.model_copy(update=updates)
 
 
+def aggregate_truncation(files: list[FileContext]) -> Truncation:
+    """Sum the truncation records of several FileContexts.
+
+    applied is true when any file was trimmed, reasons keep their first
+    seen order, dropped and trimmed items are concatenated in file order
+    and removed_chars is summed, so a roll-up describes exactly what the
+    group lost. Files without a record and an empty list contribute an
+    empty (not applied) record. No input is modified.
+    """
+    applied = False
+    reasons: list[str] = []
+    dropped_items: list[str] = []
+    trimmed_items: list[str] = []
+    removed_chars = 0
+
+    for file_context in files:
+        record = file_context.truncation
+        if record is None:
+            continue
+        applied = applied or record.applied
+        for reason in record.reasons:
+            _add_reason(reasons, reason)
+        dropped_items.extend(record.dropped_items)
+        trimmed_items.extend(record.trimmed_items)
+        removed_chars += record.removed_chars
+
+    return Truncation(
+        applied=applied,
+        reasons=reasons,
+        dropped_items=dropped_items,
+        trimmed_items=trimmed_items,
+        removed_chars=removed_chars,
+    )
+
+
 def _reduce_total(
     sources: list[FileContext],
     files: list[FileContext],

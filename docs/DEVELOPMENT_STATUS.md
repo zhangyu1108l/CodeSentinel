@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 5：Python AI Service + DeepSeek — 已完成（5.1 HTTP 边界 + 5.2 DeepSeek 真实调用）**
+**Phase 6：Code Context — ✅ 完成（6.1~6.7.6 全部完成；真实 PR E2E 验收通过）**
 
 ## 当前任务
 
-Phase 5 已完成。下一步：Phase 6（Code Context）。
+Phase 6.7.6（真实 PR E2E 联调）已完成并通过验收（PR #3，task 3~7；含受控 degraded 演练；Python 1052 / Java 202）。下一步：Phase 7（Static Analysis）。
 
 ## 当前总体进度
 
@@ -33,7 +33,7 @@ Phase 2  GitHub App + Webhook     ✅ 已完成
 Phase 3  GitHub API               ✅ 已完成
 Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
-Phase 6  Code Context             ⬜ 未开始
+Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
 Phase 7  Static Analysis          ⬜ 未开始
 Phase 8  LangGraph Multi-Agent    ⬜ 未开始
 Phase 9  GitHub 评论              ⬜ 未开始
@@ -625,23 +625,374 @@ Code Context
 - Milvus
 - RAG
 
+**实际采用（6.1~6.5）**：统一 diff 行号语义 + 正则识别 + 行扫描 + 字符串/注释掩码 + Java 大括号深度 + Python 缩进。**未引入任何第三方解析依赖，未使用 AST / Tree-sitter / JavaParser / ripgrep**；所有定位结果标记 `source=HEURISTIC` 并携带 `confidence`，后续若精度不足可在不改契约的前提下替换实现（`SymbolSource.AST` 已预留）。
+
 ## 子任务
 
-- [ ] Diff Parser
-- [ ] File Context
-- [ ] Method Context
-- [ ] Class Context
-- [ ] Related Code
-- [ ] Context Size Control
-- [ ] Token 控制
+- [x] Diff Parser（Phase 6.1，commit `5c8c703`）
+- [x] File Context（Phase 6.2，commit `f29190e`）
+- [x] Method Context（Phase 6.3，commit `4cbdd6b`）
+- [x] Class Context（Phase 6.4，commit `c6b5391`）
+- [x] Related Code（Phase 6.5，commit `6c9bc48`）
+- [x] Context Size Control（Phase 6.6.1 ~ 6.6.3，commits `ca97606` / `e3f0b3c` / `f4192dd`）
+- [x] Token 控制（Phase 6.6.4，commit `d3ecb2f`）
+
+## Phase 6 尚未完成的部分（重要，勿误判为已闭环）
+
+6.1~6.6 完成的是**纯 Python、可离线测试的 Code Context 构建链与预算控制**；6.7.1 提供了 Java 侧 PR Context 只读接口。**Python 侧取码与装配尚未实现**：
+
+- [x] Java 侧 PR Context 只读接口（Phase 6.7.1：`GET /api/tasks/{taskId}/pr-context`，含分页 / 内容保护 / 单 Token 复用；**尚未提交**）
+- [x] Python 侧 `PrContext` DTO + `PrContextClient`（Phase 6.7.2：`schemas/pr_context.py` + `context/pr_context_client.py`；**尚未提交**）
+- [x] `CodeContextBuilder`：`PrContext → CodeContext` 装配（Phase 6.7.3：`context/code_context_builder.py`；**尚未提交**）
+- [x] `ReviewService` 接线（Phase 6.7.4：取码 → 装配 → 预算；取码失败降级 `degraded`，不触发 Phase 4 无限重试；**尚未提交**）
+- [x] Prompt 渲染 Code Context + `file_path` / 行号硬约束（Phase 6.7.5：`prompts/code_context.py` + `build_messages(request, context, context_report)`；**尚未提交**）
+- [x] 真实 PR 端到端联调（Phase 6.7.6：PR #3，webhook → Task → Redis → Worker → PR Context → CodeContext → Budget → Prompt → DeepSeek → Findings 全部通过；含受控 degraded 演练；**尚未提交**）
+
+因此当前 `handler.py` 仍传 `files=[]`（仅影响 Prompt header 的文件列表显示，Context 按 task_id 获取）；`prompts/review.py` 已在 Context 可用时渲染真实代码（diff / changed methods / related code / 不可用原因 / 截断声明），仅在无 Context 配置时保留 Phase 5 的 "no file content" 声明。
+
+## Phase 6 子阶段
+
+### Phase 6.1：Diff Parser + Code Context 数据契约（commit `5c8c703`）
+
+- [x] `agent/app/schemas/code_context.py`：Phase 6 全套内部契约（Language / FileStatus / DiffLine / Hunk / ChangedRange / SymbolRef / FileStructure / CodeSnippet / FileDiff / FileContext / CodeContext）
+- [x] `agent/app/context/diff_parser.py`：`detect_language` / `parse_file_status` / `parse_hunks` / `merge_changed_ranges` / `parse_patch`
+- [x] 行号一律 1-based 且以 **diff 新文件侧**为准（Phase 9 行级评论的前提）
+- [x] 替换语义（`-` 紧跟 `+`）只报新增侧；纯删除锚定到最近的新侧行；整文件删除不产出区间（不伪造行号）
+- [x] 按 hunk header 声明行数关闭 hunk，避免把下一个文件的 `--- a/x` 误读为删除行
+- [x] `patch=None`（binary / 纯 rename / 超大 diff）、空 patch、畸形 header 全部降级为 `notes`，不抛异常
+- [x] 测试 138 项（`test_diff_parser.py` 77 + `test_code_context_schemas.py` 61）
+
+### Phase 6.2：File Context（commit `f29190e`）
+
+- [x] `FileContent { path, revision, content, error }` 输入模型（命名对齐 Java `FileContent` record）
+- [x] `FileContext` 追加 `content` / `line_count`（向后兼容，6.1 字段与语义未变）
+- [x] `agent/app/context/file_context_builder.py`：`split_lines` / `count_lines` / `build_file_context` / `build_file_contexts`
+- [x] 行号采用 **Git 行模型**：先归一 CRLF/CR，再 `split("\n")` 并只剥离末尾一个空元素；**不使用 `str.splitlines()`**（它会在 `\x0b`、`\x0c`、`\u2028` 处额外断行，导致与 diff 行号错位）
+- [x] 关联键 = 新路径；`content.path != file_diff.path` 时拒绝使用（防止张冠李戴）
+- [x] REMOVED 文件不要求 head 内容，传入的内容被忽略并记 note
+- [x] 一致性检查：`revision` 不符、`changed_ranges` 超出文件长度、ADDED 文件行数少于新增行数 → 记 note，不修正事实数据
+- [x] 测试 90 项（`test_file_context_builder.py` 76 + 契约 14）
+
+### Phase 6.3：Method Context（commit `4cbdd6b`）
+
+- [x] `MethodContext { name, start_line, end_line, kind, language, enclosing_class, signature, code, source, confidence, changed_ranges }`
+- [x] `agent/app/context/method_context_builder.py`：`find_methods` / `match_methods` / `build_method_contexts` / `attach_method_contexts`
+- [x] 共享扫描原语：字符串/字符字面量/行注释/块注释/Java 文本块/Python 三引号掩码（掩码与原行等长，列号可直接回用于切片）
+- [x] Java：大括号深度 ≥ 1 + 签名正则 + 块关键字与前缀 token 双重排除 + 大括号配对求 body；接口/抽象的无 body 声明仅在 depth==1 接受（因此方法体内的 `foo(bar);` 不会被当方法）
+- [x] Java 构造方法：无前缀候选需满足 depth==1 + 首字母大写 + **参数列表形状**（据此区分 `E(int v)` 构造方法与 `VALUE(1)` / `CODE("s")` 枚举常量）
+- [x] Python：`def` / `async def` + 括号平衡 0 处的 `:` 求 header + 缩进求 block 尾；`kind` 由最近外层块头判定（class → METHOD，def/无 → FUNCTION，故嵌套函数是 FUNCTION）
+- [x] 注解 / 装饰器计入 `start_line`（含跨行写法）
+- [x] 关联采用 **overlap 而非 containment**：命中签名、命中注解行、一个区间跨多方法、多个区间落同一方法（合并为一个 MethodContext）均正确处理
+- [x] 置信度：Java body 0.9 / 构造方法 0.7 / 无 body 声明 0.6 / Python 0.85
+- [x] 真实代码自检：项目 28 个 Python 文件识别数与 `def` 行数全一致；Java main 69 个方法范围全部合法
+- [x] 测试 120 项
+
+### Phase 6.4：Class Context（commit `c6b5391`）
+
+- [x] `TypeKind`（CLASS / INTERFACE / ENUM / RECORD / ANNOTATION_TYPE）+ `ClassContext { name, start_line, end_line, kind, language, depth, signature, code, source, confidence }`
+- [x] `MethodContext.enclosing_class`、`FileContext.classes` 追加；6.1 就存在的 `FileContext.enclosing_class` 首次真正填充
+- [x] `agent/app/context/class_context_builder.py`：`find_classes` / `find_anonymous_regions` / `innermost_scope` / `innermost_class` / `enclosing_class_name` / `build_class_contexts` / `attach_class_contexts`
+- [x] 抽取 `agent/app/context/source_scanner.py`：6.3/6.4/6.5 共用掩码、大括号扫描、缩进块扫描、注解回溯、签名折叠与切片原语（避免多套解析器）
+- [x] Java 支持 class / interface / enum / record / `@interface` / abstract class / static nested / inner / 多层嵌套 / 方法内 local class；`depth` = 同文件中包含它的类型个数（Java 与 Python 语义一致）
+- [x] Python 支持 class / 多层 nested class / 装饰器；docstring 与字符串内的 `class X:` 被掩码忽略；顶格 docstring 内容不会截断块
+- [x] **anonymous class 不生成 ClassContext**（无名可报，避免伪造），但其体区间作为"无名作用域"参与最近作用域竞争 → 匿名体内方法 `enclosing_class=None`，不会错误归属外层类；匿名体内的命名 local class 仍按最内层胜出
+- [x] `FileContext.enclosing_class` 仅在无歧义时填充（变更方法的唯一 enclosing，或无方法时唯一的顶层类型），否则为 `None`
+- [x] 真实代码自检：Java 48 个类型 / 246 个方法，0 处范围或切片错误；Python class 数量与独立统计 0 处不符
+- [x] 测试 116 项 + 契约 14 项
+
+### Phase 6.5：Related Code（commit `6c9bc48`）
+
+- [x] `RelatedKind`（METHOD / CONSTRUCTOR / FIELD / NESTED_TYPE）+ `RelatedReason`（SIBLING_OF_CHANGED_METHOD / MEMBER_OF_CHANGED_CLASS）+ `RelatedCodeContext { path, name, start_line, end_line, reason, kind, owner_class, code, source, confidence }`；`FileContext.related_code` 追加
+- [x] `agent/app/context/related_code_builder.py`：`build_related_code` / `attach_related_code`
+- [x] 选择链路：`changed_ranges + changed methods → innermost_class 得 anchor → 取 anchor 的直接成员（同类方法 / 字段 / 构造方法 / 嵌套类型）→ 去重 → 稳定排序`
+- [x] 排序优先级：同类方法 > 同类字段 > 构造方法 > 同类嵌套类型，同级按 `(start_line, name)`
+- [x] 只取**结构证据**：`innermost_class == anchor`（方法/字段）、`depth == anchor.depth + 1` 且被包含（嵌套类型）；不做名称相似度、子串、语义或调用推断
+- [x] 与 `changed_ranges` 重叠的候选一律丢弃 → 变更方法自身、被改字段、anchor 类型本身都不会重复出现，也不复制整个类源码
+- [x] Java 字段：类体大括号深度 + `java_declaration_end` 遇 `;` 才算字段（正确排除方法、`static {}`、局部变量、`record = 1;`、枚举常量）；支持注解独立行、跨行初始化、数组、接口常量
+- [x] Python 类属性：赋值与"仅注解"两种形态；按语句级游标消费，跨行初始化器的续行不会成为独立字段；多行 class header 的参数行不进入扫描；方法体内局部变量、模块级常量、嵌套类属性均不外泄
+- [x] 跨文件搜索 / symbol index / call graph / imports / 继承解析 **一律未实现**（仅当前 FileContext）
+- [x] 输入 FileContext 不可变（全部 `model_copy`），content 不可用 / REMOVED / 空文件 / OTHER / 畸形源码一律返回空列表
+- [x] 真实代码自检：36 个文件跑完整 6.1→6.5，123 条 related code，切片与行号 0 问题、0 重复嵌套
+- [x] 测试 89 项 + 契约 16 项
+
+### Phase 6.6.1：Context 预算数据模型（commit `ca97606`）
+
+- [x] `ContextBudget { max_item_chars=6000, max_related_chars=12000, max_file_chars=24000, max_total_chars=None, min_file_chars=4000, keep_changed_code=True, allow_nested_header_only=True }`（默认值来自真实测量）
+- [x] `ContextStats { prompt_chars, prompt_chars_by_kind, estimated_tokens, related_total/kept/dropped, truncated_items, retained_source_chars }`
+- [x] `Truncation { applied, reasons, dropped_items, trimmed_items, removed_chars }`
+- [x] `RelatedCodeContext.truncated`、`MethodContext.truncated`、`ClassContext.header_end_line` 追加；`FileContext` / `CodeContext` 追加 `stats` / `truncation`（全部带默认值，向后兼容）
+- [x] `agent/app/context/context_size_controller.py`：`estimate_tokens(text) = ceil(other_chars/3) + cjk_chars`（确定性、无 tokenizer、无网络）
+- [x] 测试 30 项
+
+### Phase 6.6.2：单文件 Context Size Control（commit `e3f0b3c`）
+
+- [x] `measure_context(file_context) -> ContextStats`：只测不裁；`prompt_chars` 仅计 diff / changed methods / related / 元数据，`content` 与未变更 `classes[].code` 只进 `retained_source_chars`
+- [x] `apply_context_budget(file_context, budget) -> FileContext`：related 按优先级整条删除；单条超限时 METHOD / CONSTRUCTOR / FIELD 整条删、NESTED_TYPE 可降级为声明头（依赖 `ClassContext.header_end_line`）；changed code 永不为 related 让路；diff 不裁
+- [x] 优先级：reason（SIBLING > MEMBER）→ kind（METHOD > FIELD > CONSTRUCTOR > NESTED_TYPE）→ confidence → 与 changed_range 的行距 → start_line / name；保留条目**保持输入顺序**
+- [x] `class_context_builder.py` 最小改动：填充 `header_end_line`（6.4 检测行为不变）
+- [x] 输入不可变（`model_copy`）、幂等（已降级条目不二次收缩）；测试 61 项 + 契约 16 项
+
+### Phase 6.6.3：多文件 Context Budget（commit `f4192dd`）
+
+- [x] `plan_file_budgets(weights, budget)`：权重 = `1 + changed_method_count`；floor 优先、按权重分配、total 不足时按权重顺序确定性降级；输出顺序 = 输入顺序
+- [x] `apply_context_budget_to_files(files, budget)`：逐文件复用 6.6.2，设置 `max_total_chars` 时进入全局二次削减（低重要度文件 → 同文件低优先级 related 先删；changed code 仍受保护；仍超则记录 `changed code exceeds total budget` 留给 Prompt 层）
+- [x] `aggregate_stats(files)`：数值求和、`prompt_chars_by_kind` 首见序合并、`stats=None` 即时测量
+- [x] 测试 40 项
+
+### Phase 6.6.4：Token 控制（commit `d3ecb2f`）
+
+- [x] `tokens_for_chars` / `chars_for_tokens`：与估算器同源（默认 3 字符/token，rate 下限 1；零/None/负数 → 0；精确往返）
+- [x] `budget_from_tokens(...) -> ContextBudget`：把 token 限额换算为字符预算（单文件 / 多文件 / item / related / min-file），其余沿用 `base`（默认 `DEFAULT_BUDGET`），不修改 `base`
+- [x] 未引入 tiktoken / tokenizers 等任何 Token SDK；未改 6.6.1~6.6.3 行为
+- [x] 测试 49 项
+
+### Phase 6.7.1：Java 侧 PR Context 读取（**尚未提交**）
+
+- [x] `config/ReviewContextProperties`（`review.context.max-files=50` / `max-file-bytes=262144` / `max-fetch-pages=5` / `include-content-extensions=[java, py]`，含缺省值与扩展名归一化）；已登记到 `@EnableConfigurationProperties`，`application.yml` 同步
+- [x] `github/GithubPullRequestFilesClient`：`GET /repos/{owner}/{repo}/pulls/{number}/files`，`per_page=100`，解析 `Link rel="next"` 分页；达到 `max-files` 立即停止后续请求；`max-fetch-pages` 安全上限；Link 缺失/畸形视为无下一页；保持 GitHub 返回顺序
+- [x] `github/PullRequestFile`：`path / previousPath(previous_filename) / status / additions / deletions / changes / patch / blobUrl`
+- [x] `prcontext/PrContextFile` / `PrContextResponse`：稳定 JSON 契约；空 `patch` 归一为 `null`；`content_available` / `content_truncated` / `content_reason`（蛇形字段，供 6.7.2 Python 侧对齐）
+- [x] `prcontext/PrContextService`：从 ReviewTask 取 owner/repo/prNumber/commitSha → PR metadata → changed files → 逐文件内容决策；removed 与非 Java/Python 文件**在请求前**跳过；单文件 HTTP 失败仅降级该文件
+- [x] `controller/PrContextController`：`GET /api/tasks/{taskId}/pr-context`；task 不存在 → 404（控制器内局部 `@ExceptionHandler(TaskNotFoundException)`）
+- [x] `github/GithubFileContentClient` 修复：路径按段 `UriUtils` 编码（空格 / `#` / 中文安全）；`encoding != base64`、`type != file`、NUL 二进制、`size`/解码长度超限 → 明确标记 `content` 不可用且**不进入 JSON**；合法空文件（`size=0 + base64 + content=""`）仍返回空字符串
+- [x] `github/GithubPullRequestClient` 追加 Token overload（原签名保留并委托，公共语义不变）
+- [x] `github/FileContent` 追加 `contentReason` + `REASON_TOO_LARGE` / `REASON_BINARY`
+- [x] Installation Token 单次复用：`PrContextService` 每次构建只取一次 Token 并贯穿 PR / files / contents 三个客户端（无全局缓存）
+- [x] `content_reason` 取值：`removed` / `unsupported_language` / `too_large` / `binary` / `fetch_failed:<status>`（未知 HTTP 错误为 `fetch_failed:unknown`）
+- [x] Java 测试 202/202（基线 152 + 新增 50：files client 14 / file content 9 / service 13 / controller 5 / properties 9）
+- [x] `git diff --check` 通过；Python 本次零修改
+
+**6.7.1 设计决策（已确认，不要再改）**
+
+- `max-file-bytes` **无法**在 `GET /pulls/{n}/files` 阶段提前获知（该 API 不返回字节大小），因此采用 **contents 响应后的 `size` / 解码长度防护**；**不新增 Git Trees / Blobs API**（removed 与非 Java/Python 仍按规格在请求前跳过）
+- `TaskNotFoundException` 在 `PrContextController` 内局部返回 404；其他 GitHub / Token 异常**沿用项目现有异常传播方式**（容器转 5xx），**不新增全局错误响应体系**
+- `content_available` / `content_truncated` / `content_reason` 保持**蛇形字段名**，作为 6.7.2 Python 侧契约（其余字段沿用项目既有驼峰：taskId / owner / repo / prNumber / commitSha / previousPath / patch / blobUrl）
+
+### Phase 6.7.2：Python PrContext DTO + PrContextClient（**尚未提交**）
+
+- [x] `agent/app/schemas/pr_context.py`：`PrContext` + `PrContextFile`，严格对应 Java `GET /api/tasks/{taskId}/pr-context` 返回结构
+  - Java 普通字段沿用项目既有 camelCase 映射（与 `TaskMessage` 一致：taskId / prNumber / commitSha / previousPath / blobUrl / baseRef / headRef）
+  - `content_available` / `content_truncated` / `content_reason` 固定为**蛇形**（camelCase 变体不被接受，保持契约唯一）
+  - `content` 允许 `null`；空字符串 `content=""` 仍表示**合法空文件**（`content_available=true`）
+  - `content_reason` 原样保留 `removed` / `unsupported_language` / `too_large` / `binary` / `fetch_failed:*`
+  - 必需字段：`path`、`status`（缺失 → ValidationError）；计数器与可选字段带容错默认值（0 / None / false）
+- [x] `agent/app/context/pr_context_client.py`：`PrContextClient.fetch(task_id) -> PrContext`（async）
+  - 使用既有 `httpx`（AsyncClient，与 DeepSeekClient 同风格），**未新增 HTTP 客户端依赖**
+  - base URL 复用 `settings.JAVA_SERVICE_URL`，超时新增 `settings.PR_CONTEXT_TIMEOUT`（默认 30s，已同步 `.env.example`）
+  - 非 2xx / 非 JSON / Schema 不符：记录日志后**原样抛出**（与 `AiServiceClient` / `JavaServiceClient` 约定一致），由调用方决定降级
+  - 纯传输层：不做 Context 装配、不构建 Prompt、不做业务判断；日志不输出文件内容
+- [x] 测试 44 项（`test_pr_context_schemas.py` 29 + `test_pr_context_client.py` 15）：完整解析 / 多文件顺序 / content=null 与 reason / 蛇形字段映射 / camelCase 变体拒绝 / 空文件保留 / 缺字段默认值 / 必需字段校验 / 404 / 5xx / 非 JSON / 空 files / 超时与 base URL 复用 / 传输层边界
+- [x] Python 全量 948/948（基线 904 + 新增 44）
+
+**6.7.2 设计决策**
+
+- DTO 普通字段采用**与 `TaskMessage` 相同的 camelCase 字段名**（直接反序列化 Java JSON，无需 alias）；仅内容状态三字段使用蛇形，与 Java `@JsonProperty` 完全对齐
+- 客户端为 **async**（未来消费者 `ReviewService` 也是 async；与 `DeepSeekClient` 风格一致），传输失败不包装成自定义异常，保持既有客户端约定
+- 超时独立于 `AI_SERVICE_TIMEOUT`（上下文抓取涉及 Java 侧多次 GitHub 调用），但仍是同一套 `settings` 配置体系
+
+### Phase 6.7.3：CodeContextBuilder（**尚未提交**）
+
+- [x] `agent/app/context/code_context_builder.py`：`CodeContextBuilder.build(pr_context) -> CodeContext`（装配，无 IO、无预算、无 Prompt）
+- [x] 复用 6.1~6.5 既有链路，不重复实现解析：`parse_patch → build_file_context → attach_method_contexts → attach_class_contexts → attach_related_code`
+- [x] 字段映射：
+  - `CodeContext.repository = "owner/repo"`、`pr_number`、`head_sha = commitSha`；**`base_sha` 保持 `None`**（Java 契约只提供 base 分支名而非 base SHA，不得把 ref 名当作 SHA 记录）
+  - `PrContextFile.path/status/patch/previousPath` → `FileDiff`（patch=None → `patch_available=false` + note；renamed → `previous_path` 与新的 `path`）
+  - `PrContextFile.content` → `FileContent { path, revision=commitSha, content, error=content_reason }` → `FileContext.content` / `line_count` / `content_available`
+  - `content_reason` 保留在 `FileContext.content.error` 与 `notes` 中（removed / unsupported_language / too_large / binary / fetch_failed:*）
+  - 文件顺序与 Java 返回顺序一致
+- [x] 不可用内容安全语义：`content=null` 一律不伪造代码（methods/classes/changed_symbols/related_code 全为空、`line_count=0`、无 snippets/structure）；单个文件不可用不影响整体构建；REQUIRED 字段（如 removed 的 `skipped_reason`）与 note 保留原因
+- [x] title / state / baseRef / headRef 不复制进 CodeContext（需要的调用方保留 PrContext；未为未来 Prompt 预设计字段）；未做任何 schema 结构调整
+- [x] 未应用预算：`CodeContext.stats/truncation` 与各 `FileContext.stats/truncation` 保持 `None`（预算由 6.6.3 的 `apply_context_budget_to_files` 在接线阶段调用，留给 6.7.4）
+- [x] 测试 30 项（`test_code_context_builder.py`）：正常映射 / 多文件顺序 / patch 保留 / patch=None / 可用内容与 6.1~6.5 联动（methods/classes/related）/ Python 文件 / 空文件 / renamed / removed / unsupported_language / too_large / binary / fetch_failed:* / 空 files / 不伪造不可用 content / 单个不可用不影响整体 / 输入不可变 / 确定性 / 预算未应用 / 无全局 note
+- [x] Python 全量 978/978（基线 948 + 新增 30）；现有 6.1~6.6 测试零回归
+
+**6.7.3 设计决策**
+
+- `base_sha` 保持 `None`：Java `PrContextResponse` 只有 `baseRef`（分支名）没有 base SHA；**不新增字段**，也不把分支名写入 SHA 字段
+- 不把 title/state/refs 复制进 `CodeContext`，避免为 Prompt 阶段提前扩 schema；6.7.4/6.7.5 可同时持有 `PrContext` 与 `CodeContext`
+- 装配阶段不触发预算裁剪（保持 `stats/truncation=None`），预算作为显式步骤由调用方决定
+
+### Phase 6.7.4：ReviewService 接线（**尚未提交**）
+
+- [x] `agent/app/services/review_service.py`：`ReviewService` 新增可选注入 `pr_context_client` / `context_builder` / `context_budget`；`review()` 流程变为
+  `_load_context(request) → build_messages(request) → llm_service.generate_findings(...)`
+- [x] `agent/app/api/review_router.py`：生产注入 `PrContextClient`（新增 `get_pr_context_client` 依赖），正式接入取码
+- [x] 正常路径：`PrContextClient.fetch(task_id)` → `CodeContextBuilder.build(pr_context)` → **Phase 6.6 预算**：`apply_context_budget_to_files(context.files, budget)`（默认 `DEFAULT_BUDGET`），并把 `aggregate_stats(files)` / `aggregate_truncation(files)` 回填到 `CodeContext.stats/truncation`
+- [x] `agent/app/context/context_size_controller.py`：**最小追加** `aggregate_truncation(files) -> Truncation`（与既有 `aggregate_stats` 对称的汇总函数，未改 6.6 任何既有语义）
+- [x] 失败降级（本阶段核心）：
+  - `_load_context` 内 `fetch / build / budget` 的任何异常都被捕获 → **不向上抛出**（因此不会进入 Phase 4 的 `report_failure → retry` 链，避免对 404/契约不符/网络错误做无意义重试）
+  - `ReviewTaskResult.status = "DEGRADED"`，`report.context = {available:false, degraded:true, reason:<短原因>}`，`report.summary` 明确写 "Review degraded ... PR context unavailable."
+  - `reason` 只暴露失败类别：`http_error:<status>`（404/5xx）/ `ConnectError` / `ReadTimeout` / `ValidationError` / 其他类名；**不把异常 message 写进报告**（validator 消息可能回显代码内容）；完整堆栈仅 DEBUG 记录
+  - `ReviewTask` 生命周期不受影响：worker 仍按原流程 `mark_completed`（degraded 不等于任务失败）
+- [x] CodeContext **未接入 Prompt / LLM**：`build_messages(request)` 与 `llm_service.generate_findings(messages)` 与 Phase 5.2 完全一致（测试用 `messages == build_messages(request)` 静态证明）；CodeContext 仅被装配、预算并汇总进 `report.context`
+- [x] Phase 4 重试策略**未改动**：LLM 失败（`LLMException` 等）仍照旧向上抛出触发既有 retry；只有 context 失败被本地降级
+- [x] 未注入 `pr_context_client` 时保持 Phase 5 行为：`status=COMPLETED`、`report.context = {available:false, degraded:false, reason:"not_configured"}`
+- [x] 测试 22 项（`test_review_service.py` 新增 17 + `test_context_size_controller.py` 新增 5）：正常装配与预算 / 多文件汇总 / prompt 未被改变 / 预算生效（related 被裁） / 404·5xx·网络异常·ValueError·ValidationError 全部 degraded / builder 异常 degraded / 不抛出 / not_configured 保持 Phase 5 / LLM 失败仍传播（含 degraded 情况下） / 请求不可变 / 确定性 / `aggregate_truncation` 汇总
+- [x] Python 全量 1000/1000（基线 978 + 新增 22）；6.1~6.6 与 Phase 4/5 测试零回归
+
+**6.7.4 设计决策**
+
+- `status="DEGRADED"` 作为既有 `ReviewTaskResult.status` 的新取值表达降级；任务生命周期仍为 COMPLETED（degraded ≠ failed），不新增状态机
+- 降级边界只包住 context 获取/装配/预算；**LLM 调用在边界之外**，因此真正的审查失败仍走 Phase 4 retry
+- 预算始终执行（未显式传入时用 `DEFAULT_BUDGET`），装配与预算解耦但都由 `ReviewService` 显式调用
+- 不在本阶段把 CodeContext 放进 Prompt（留 6.7.5）；`report.context` 只放摘要（数量/estimated_tokens/truncated），不放代码内容
+
+### Phase 6.7.5：Prompt 接线（**尚未提交**）
+
+- [x] `agent/app/prompts/code_context.py`（新）：`render_code_context(context)` / `render_context_unavailable(reason)`；纯渲染，无 IO、无预算逻辑、无 schema 变更
+  - 渲染载荷与 6.6 预算度量同一口径（metadata / diff / changed methods / related code）+ 内容可用性 + stats / truncation 声明
+  - `content` 全文与未变更 `classes[].code` 按 6.6 契约仍不发送（只进 `retained_source_chars`）；可用内容以 diff / changed method 切片 / related 切片呈现，Prompt 明示 "selection of the changed files, not the whole repository"
+  - 行号只来自已有字段（hunk header、methods/classes/related 的 start-end、changed_ranges），不新算行号
+- [x] `agent/app/prompts/review.py`：`build_messages(request, context=None, context_report=None)` 三态
+  - 无 report（旧调用方）→ Phase 5.2 user message **逐字节不变**（回归测试锁定）
+  - context 可用 → header + 渲染块；degraded → "PR context unavailable (reason: ...)"，不伪造代码
+  - `SYSTEM_PROMPT` 追加硬约束：`file_path` 必须来自提供的上下文、行号必须存在于提供的 diff/代码、不得编造行号、截断/内容不可用不得当作"没有问题"的证据；既有 JSON schema 与规则全部保留
+- [x] `agent/app/services/review_service.py`：`_load_context` 返回 `(context | None, report)`；`review()` 把两者交给 `build_messages`，并 DEBUG 记录 prompt 字符数（不记录内容）
+- [x] 不可用内容：`content: unavailable (reason: ...)` 可区分 removed / unsupported_language / too_large / binary / fetch_failed:<status>；无代码围栏、无 "None" 文本
+- [x] 截断声明：`Context truncation: THE CODE CONTEXT BELOW IS INCOMPLETE ...`（含 reasons / dropped / trimmed / removed_chars）；未截断时无任何截断声明
+- [x] 测试 52 项（新 `test_code_context_prompt.py` 48 + `test_review_service.py` 净增 4：6.7.4 的 "prompt 不变" 静态断言被 context-in-prompt / 不可用 / 截断 / degraded / not_configured 取代）
+- [x] Python 全量 1052/1052（1000 + 52）；6.1~6.7.4 与 Phase 4/5 零回归；`git diff --check` 通过
+
+**6.7.5 设计决策**
+
+- 渲染载荷严格对齐 6.6 预算口径（metadata + diff + changed methods + related）：full content 属 `retained_source_chars`（设计上不发送），Prompt 明确说明内容以切片呈现，避免"以下即完整仓库"的暗示
+- classes / changed_symbols 只渲染定位性标签（名称 / 行号 / kind / source / confidence），不重复发送类体代码；字段变更由 related code 的 FIELD 项覆盖
+- 可用性（reason）、截断（applied）、统计（stats）全部来自现有模型字段，Prompt 层不重新计算预算
+- `build_messages` 保持向后兼容三态；只有 degraded 输出 unavailable 语句，`not_configured` 保持 Phase 5 行为
+- 渲染文本含不可信源码，禁止写日志；ReviewService 只记录字符数
+
+### Phase 6.7.6：真实 PR E2E 联调（**尚未提交**）
+
+环境修复（均为本机配置/环境，未改业务代码）：
+- [x] `.env` 陈旧项修复（gitignored，不入库）：私钥路径指向实际存在的 pem 文件；补充真实 `GITHUB_INSTALLATION_ID`（165170316，zhangyu1108l / app codesentinel-lab）
+- [x] Docker Desktop 启动 + `docker compose up -d mysql`（3307，复用既有 volume）；未启动 compose Redis（6379 沿用本机实例）
+- [x] `codesentinel.review_task` 表存在且列与实体一致（未新建/修改表）
+- [x] Spring 以 `-Dspring-boot.run.workingDirectory=<repo root>` 启动（私钥路径按进程 CWD 解析，`spring-boot:run` 默认工作目录为模块目录——启动方式问题，非代码缺陷）
+- [x] Python 侧从 `.env` 显式导出环境变量后启动 FastAPI / Worker（settings.py 按 CWD 读取 `.env` 的既有约定）
+- [x] Smee 转发重建（GitHub App webhook URL → `http://localhost:8080/api/github/webhook`）
+
+真实 PR 联调（PR #3，分支 `test/phase6-e2e`，经 GitHub API 创建，未合并）：
+- [x] 测试内容：`e2e-fixtures/Phase6Sample.java`（added）、`e2e-fixtures/phase6_sample.py`（added）、`e2e-fixtures/notes.md`（added，unsupported）、`agent/app/worker/java_client.py`（modified，单方法注释变更）
+- [x] **task 4**（synchronize，cf2f13fb）：webhook → Task → Redis → Worker → `/pr-context` 200（files=3, withContent=2）→ 预算（estimatedTokens=377, truncated=false）→ Prompt → DeepSeek 200 → **COMPLETED, findings=2**
+- [x] **task 5**（modified 文件，9c5f4199）：files=4, withContent=3, estimatedTokens=1188, related_kept=2 → **COMPLETED, findings=2**
+- [x] A：`/pr-context` 返回真实 path / status / additions / deletions / changes / patch；Java/Python 有 content；md = `unsupported_language` 无 content；文件顺序 = GitHub 顺序
+- [x] B：`PrContextClient` 解析真实 Java JSON，snake_case 三字段映射正确；`CodeContextBuilder` 构造真实 CodeContext；输入顺序保留；不可用文件未伪造代码
+- [x] C：真实上下文进入 6.6 预算；stats 与渲染载荷口径一致（prompt_chars=1126 / 3559，estimated_tokens=377 / 1188）；本 PR 未触发截断（整文件 added / 单行 modified），无虚假截断声明
+- [x] D：录制最终 messages 验证：repository / PR / commit SHA / 文件路径 / diff / changed methods（真实代码切片）/ related code（task 5：`related_kept=2`）/ 不可用原因 / 硬约束全部存在；15 项检查全 OK
+- [x] E：真实 DeepSeek findings 逐条核验：`file_path` ∈ 提供上下文；`start_line/end_line` 均落在该文件被提供的行区间内（Java 7-10 ⊂ 变更方法 7-10；Python 1-2 ⊂ 方法 1-2）
+- [x] F（受控 degraded）：Spring 以坏私钥路径运行（仅上下文接口 500）→ task 6：`/pr-context` 500 → 日志 "PR context unavailable ... reason=http_error:500" → DeepSeek 仍被调用（Phase 5 流程保留）→ **status=DEGRADED, findings=0**；degraded Prompt 含 "PR context unavailable" 且无代码/围栏；**不进入 Phase 4 retry**（MySQL：COMPLETED、retry_count=0、无 error_message）
+- [x] F 恢复：还原 Spring 后 task 7（69b0c3aa）：files=4, withContent=3, estimatedTokens=1203 → **COMPLETED, findings=1**（同 PR 仅 commit 变化 → 新 task，幂等正常）
+- [x] G 回归：Python **1052/1052**；Java **202/202**（BUILD SUCCESS）；`git diff --check` 通过
+- [x] 安全检查：Spring / Worker / AI 正常日志无 API Key、JWT、私钥、密码模式命中；未输出完整敏感源码
+
+**6.7.6 结论**
+
+- **真实 E2E PASS**：真实 PR 从 webhook → Task → Redis → Worker → PR Context → CodeContext → Budget → Prompt → DeepSeek → Findings 全链路成功（task 4 / 5 / 7）；受控 degraded 演练通过（task 6）
+- **未发现 6.7.x 业务代码缺陷**（无需最小修复）；发现的问题均为环境/启动配置类（见 §已知问题）
+- **Phase 6 正式完成**，下一阶段为 Phase 7（Static Analysis）
+
+## Phase 6 当前链路（纯 Python，离线可测）
+
+```text
+GitHub patch / status / path / previous_path
+    ↓ diff_parser.parse_patch
+FileDiff { hunks, changed_ranges, additions, deletions, patch_available, notes }
+    ↓ file_context_builder.build_file_context(+ FileContent)
+FileContext { content, line_count, content_available, skipped_reason, notes }
+    ↓ method_context_builder.attach_method_contexts
+FileContext.methods[]  +  changed_symbols[]
+    ↓ class_context_builder.attach_class_contexts
+FileContext.classes[]  +  methods[].enclosing_class  +  FileContext.enclosing_class
+    ↓ related_code_builder.attach_related_code
+FileContext.related_code[]
+    ↓ （6.7.3 已实现）CodeContextBuilder.build 装配为 CodeContext
+    ↓ （6.7.4 已实现）apply_context_budget_to_files（6.6 预算）→ CodeContext.stats/truncation
+    ↓ （6.7.5 已实现）render_code_context → build_messages user message（diff + methods + related + 声明）
+    ↓ （6.7.6 已验收）真实 PR 端到端联调通过（PR #3：task 4/5/7 COMPLETED + task 6 DEGRADED 演练）
+```
+
+共享层：
+
+```text
+source_scanner.py     掩码 / 大括号深度 / 声明终止符 / 缩进块 / 注解回溯 / 签名折叠 / 切片
+file_context_builder  split_lines / count_lines（Git 行模型）
+```
+
+## 关键设计
+
+- 行号统一为 **1-based + diff 新文件侧**，Method / Class / Related 三级范围可直接与 `changed_ranges` 比较
+- 所有降级都显式化：`notes` / `skipped_reason` / `patch_available` / `content_available` / `confidence`，禁止静默丢数据、禁止伪造行号或名称
+- 全部为纯函数、无 IO、无第三方依赖；`build_*` 不抛异常，`attach_*` 一律返回 `model_copy`，输入不可变
+- `source` + `confidence` 贯穿三级符号，为后续 Validator / 行级评论定位提供可信度依据
+- 代码内容属不可信用户源码：**禁止写日志**，后续若要把 context 摘要写进 report 必须先剥离 `content` / `code`
+
+## 测试结果
+
+| 服务 | 总数 | 通过 | 状态 |
+|---|---|---|---|
+| Python (agent) | 1052 | 1052 | ✅（6.7.5 新增 52：1000 → 1052） |
+| Java (Spring Boot) | 202 | 202 | ✅（6.7.1 新增 50：152 → 202） |
+
+Phase 6 测试分布：
+
+```text
+test_diff_parser.py                   77
+test_code_context_schemas.py         152
+test_file_context_builder.py          76
+test_method_context_builder.py       120
+test_class_context_builder.py        131
+test_related_code_builder.py          89
+test_context_size_controller.py      185
+test_pr_context_schemas.py            29
+test_pr_context_client.py             15
+test_code_context_builder.py          30
+test_code_context_prompt.py           48（6.7.5 新增）
+test_review_service.py                29（含 6.7.5 新增 4）
+Phase 5 及更早（不含 review_service）   71
+```
+
+Java 6.7.1 新增分布：
+
+```text
+GithubPullRequestFilesClientTest      14
+GithubFileContentClientTest           20（11 → 20）
+PrContextServiceTest                  13
+PrContextControllerTest                5
+ReviewContextPropertiesTest            9
+```
+
+## 已知问题 / 技术债
+
+- 6.7.1 ~ 6.7.6 全链路已就绪并完成真实 PR E2E 验收（PR #3，task 3~7）；**未发现 6.7.x 业务代码缺陷**
+- 6.7.1 / 6.7.2 / 6.7.3 / 6.7.4 / 6.7.5 均尚未提交（工作区改动未 commit）；测试 PR #3 与分支 `test/phase6-e2e` 保留在远端（未合并），MySQL task 3~7 为联调记录
+- 联调环境问题（非代码缺陷，已在本地处理，`.env` 不入库）：
+  - Spring 私钥路径按进程 CWD 解析：`spring-boot:run` 默认工作目录为模块目录 → 需 `-Dspring-boot.run.workingDirectory=<repo root>` 或绝对路径；`.env` 中陈旧私钥文件名与缺失 `GITHUB_INSTALLATION_ID` 已修复
+  - Docker Desktop 引擎需先启动（MySQL 走 compose 3307；本机 3306 为无关实例）；Redis 沿用本机 6379
+- `handler.py` 仍传 `files=[]`：仅影响 Prompt header 的文件列表显示；Context 按 task_id 获取，不影响链路（观察项）
+- Worker 日志每分钟出现 `Redis BLPOP error: Timeout reading from socket`：redis-py 8.1.0 与 requirements 声明不符的既有债务（超时抛异常而非返回 nil），不影响任务消费
+- `max-file-bytes` 只能在 contents 响应后判定（`pulls/{n}/files` 无字节大小），超大文件仍会各发一次 contents 请求后才判为 `too_large`；严格"不请求"需要 Git Trees/Blobs size（已决策不引入）
+- `content_truncated` 当前恒为 `false`：超限内容按不可用处理，不返回截断正文
+- 单文件 contents 的**网络级异常**（非 `GithubApiException`）会终止整个 PR Context；仅 HTTP 4xx/5xx 按 `fetch_failed:<status>` 降级
+- 降级语义已在 6.7.4 实现：context 失败 → `status=DEGRADED` + `report.context.reason`（`http_error:<status>` / 异常类名），不进入 Phase 4 retry；**LLM 失败仍照旧抛出触发既有 retry**（Phase 4 未改动）
+- 预算已由 `ReviewService` 在 6.7.4 显式应用（默认 `DEFAULT_BUDGET`，可注入覆盖），`CodeContext.stats/truncation` 已回填（新增 `aggregate_truncation` 汇总，未改 6.6 既有语义）
+- Prompt 渲染对齐 6.6 预算口径：**full content 不发送**（`retained_source_chars`），可用内容以 diff / changed-method / related 切片呈现；`estimated_tokens` 度量的是该切片载荷（含少量固定声明文本未计入）
+- 状态可见性限制：degraded 目前只体现在 `ReviewTaskResult.status/report`，worker 仍 `mark_completed`（Java 侧 MySQL 为 COMPLETED）；若需要把 degraded 回传 Java，属后续阶段（不新增数据库结构）
+- `_anchors` 对每个 `changed_range` 只探测首尾两行，单个区间跨越 3 个及以上类型时中间类型可能漏成 anchor（只影响完整性，不产生错误项）
+- Python 多行字符串属性（`TEXT = """` 跨行）的 `end_line` 停在起始行，`code` 只含首行（不产生误报，其内部行由 `in_triple` 跳过）
+- Java 已知漏识别：4 层以上嵌套泛型返回类型的方法、字段初始化含匿名类或双花括号初始化、嵌套在类内部的 interface / abstract 无 body 声明方法（depth ≥ 2）、行内注解含嵌套括号
+- Java 多声明符字段 `private String a, b;` 只取首个名字
+- Python 属性识别不跨反斜杠续行；`x += 1` 不算声明（有意排除）
+- 启发式定位固有误差：全部 `source=HEURISTIC`，`confidence ≤ 0.9`
 
 ## Phase 6 状态
 
-**⬜ 未开始**
+**✅ 已完成**
+
+6.1~6.7.6 全部完成并通过真实 PR E2E 验收：构建链（Diff → File → Method → Class → Related）、大小 / Token 预算、Java PR Context 只读接口、Python `PrContext` DTO / Client、`CodeContextBuilder` 装配、`ReviewService` 接线（含取码失败降级）、Prompt 渲染（diff + changed methods + related code + 可用性/截断声明 + file_path/行号硬约束），以及真实 PR 全链路联调（PR #3：task 4/5/7 COMPLETED + task 6 受控 DEGRADED；Python 1052 / Java 202）。已知限制：Imports / namespace / package 分析未实现（不影响本阶段验收，留待后续按需）。
 
 ## 当前任务
 
-暂无。
+Phase 7（Static Analysis）尚未开始。按开发流程，新 Phase 首个任务应先阅读文档 / 检查代码与 Git 状态 / 提出实现计划，暂不修改代码。
 
 ## 阻塞问题
 
@@ -1039,7 +1390,27 @@ Sandbox
 
 # 18. 当前已知问题
 
-暂无。
+Phase 6（Code Context）相关：
+
+- [ ] Code Context 尚未接入真实 PR 数据
+  - 影响：`handler.py` 仍传 `files=[]`，`prompts/review.py` 仍声明 "no file content or diff"，LLM 看不到真实代码；Phase 5 链路行为未变
+  - 原因：Java 侧尚无 PR Context 只读接口，Python 侧尚无 `PrContextClient`，`CodeContextBuilder` 装配与 `ReviewService` 接线未实现
+  - 临时方案：无（6.1~6.5 的构建链可离线验证，真实数据接入属 Phase 6 收尾）
+  - 最终方案：Java `GET /pulls/{n}/files`（分页 + binary / 大小保护）→ Python client → `CodeContextBuilder` → `ReviewService`（取码失败降级 `degraded`，不得触发 Phase 4 无限重试）→ Prompt 渲染 → 真实 PR 联调
+
+- [ ] 未实现 Context Size Control / Token 控制
+  - 影响：成员很多的类会产出大量 related code（实测 `agent/app/config/settings.py` 单文件 18 条），嵌套类型的 `code` 为完整 body；接入 Prompt 后容易膨胀并挤占预算
+  - 原因：按阶段边界刻意未实现（属 Phase 6.6）
+  - 临时方案：无
+  - 最终方案：在装配层加入文件数 / 单文件字节 / 总字符预算与截断记录（`truncation.applied` / `dropped_files`），且截断必须在 Prompt 中显式声明
+
+- [ ] `_anchors` 只探测每个 changed range 的首尾两行
+  - 影响：单个区间跨越 3 个及以上类型时，中间类型可能漏成 anchor，其成员不会进入 related code（只影响完整性，不产生错误项）
+  - 原因：为控制实现复杂度，锚点探测只取区间端点
+  - 临时方案：无
+  - 最终方案：需要时对区间覆盖行抽样/逐行探测，或建立"行 → 类型"映射
+
+Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 
 格式：
 
@@ -1527,6 +1898,322 @@ Phase 6：Code Context
 
 ---
 
+### 2026-10-06 (2)
+
+Phase 6（Code Context）6.1 ~ 6.5 完成。只做「纯 Python、可离线测试的上下文构建链」，**未接入真实 PR 数据**，未实现 Context Size Control / Token 控制。
+
+已完成：
+
+- [x] Phase 6.1：Diff Parser + Code Context 数据契约 — commit `5c8c703`
+  - `schemas/code_context.py`（DiffLine / Hunk / ChangedRange / FileDiff / FileContext / CodeContext 等）
+  - `context/diff_parser.py`：`detect_language` / `parse_file_status` / `parse_hunks` / `merge_changed_ranges` / `parse_patch`
+  - 行号统一为 1-based + diff 新文件侧；替换只报新增侧、纯删除锚定最近新侧行、整文件删除不伪造行号；按 header 行数关闭 hunk；畸形 / 空 / `None` patch 全部降级为 `notes`
+- [x] Phase 6.2：File Context — commit `f29190e`
+  - `FileContent` 输入模型；`FileContext` 追加 `content` / `line_count`
+  - `context/file_context_builder.py`：`split_lines` / `count_lines` / `build_file_context(s)`
+  - 采用 Git 行模型（先归一 CRLF/CR，再 split + 只剥末尾空元素；**不用 `str.splitlines()`**，避免与 diff 行号错位）
+  - 关联键 = 新路径，路径不符即拒绝；REMOVED 不需要内容；revision / 越界 / ADDED 行数不足 → 记 note
+- [x] Phase 6.3：Method Context — commit `4cbdd6b`
+  - `MethodContext`；`context/method_context_builder.py`：`find_methods` / `match_methods` / `build_method_contexts` / `attach_method_contexts`
+  - Java：掩码 + 大括号深度 + 签名正则 + 关键字/前缀双重排除 + 大括号配对；无前缀构造方法用「参数列表形状」区分枚举常量
+  - Python：`def` / `async def` + 括号平衡求 header + 缩进求 block 尾；`kind` 由最近外层块头判定
+  - 注解 / 装饰器计入 `start_line`（含跨行）；关联用 **overlap** 而非 containment；置信度 0.9 / 0.7 / 0.6 / 0.85
+- [x] Phase 6.4：Class Context — commit `c6b5391`
+  - `TypeKind` + `ClassContext`；`MethodContext.enclosing_class`、`FileContext.classes`；`FileContext.enclosing_class` 首次真正填充
+  - `context/class_context_builder.py`：`find_classes` / `find_anonymous_regions` / `innermost_scope` / `innermost_class` / `enclosing_class_name` / `attach_class_contexts`
+  - 抽出 `context/source_scanner.py`：6.3/6.4/6.5 共用掩码、大括号、缩进、注解回溯、签名折叠、切片原语（**避免多套解析器**）
+  - Java：class / interface / enum / record / `@interface` / abstract / static nested / inner / 多层嵌套 / local class；`depth` = 包含它的类型个数
+  - Python：class / 多层 nested / 装饰器；docstring 与字符串内 `class X:` 被忽略
+  - **anonymous class 不生成 ClassContext**（无名可报），其体区间作为"无名作用域"参与最近作用域竞争 → 内部方法不错误归属外层类
+- [x] Phase 6.5：Related Code — commit `6c9bc48`
+  - `RelatedKind` / `RelatedReason` + `RelatedCodeContext`；`FileContext.related_code`
+  - `context/related_code_builder.py`：`build_related_code` / `attach_related_code`
+  - 选择链路：`changed_ranges + changed methods → innermost_class 得 anchor → 直接成员（同类方法 / 字段 / 构造方法 / 嵌套类型）→ 去重 → 稳定排序`
+  - 排序优先级：同类方法 > 字段 > 构造方法 > 嵌套类型；只取结构证据，不做名称相似度 / 语义 / 调用推断
+  - 与 `changed_ranges` 重叠的候选一律丢弃（变更方法自身、被改字段、anchor 本身不重复出现，不复制整类源码）
+  - Java 字段：类体大括号深度 + `java_declaration_end` 遇 `;` 才算字段；Python 类属性：赋值 / 仅注解，按语句级游标消费
+  - 修复两处误报：多行初始化器续行被当独立字段、多行 `class` header 参数行被当字段（真实文件 `config/settings.py` 21 → 18 条，全仓复扫噪声文件 1 → 0）
+  - 跨文件搜索 / symbol index / call graph / imports / 继承解析 **一律未实现**
+
+测试结果：
+
+- [x] Python 全量：**679 passed**（`test_diff_parser` 77 / `test_code_context_schemas` 122 / `test_file_context_builder` 76 / `test_method_context_builder` 120 / `test_class_context_builder` 116 / `test_related_code_builder` 89 / Phase 5 及更早 79）
+- [x] Java 152/152（Phase 6 未改动 Java）
+- [x] 真实源码自检：28 个 Python 文件方法识别与 `def` 行数全一致；Java 48 个类型 / 246 个方法 0 处范围或切片错误；36 个文件跑完整 6.1→6.5 产出 123 条 related code、0 问题
+
+当前包结构（Phase 6 新增部分）：
+
+```text
+agent/app/
+├── context/                        (Phase 6 新增)
+│   ├── diff_parser.py              (6.1)
+│   ├── file_context_builder.py     (6.2)
+│   ├── method_context_builder.py   (6.3)
+│   ├── class_context_builder.py    (6.4)
+│   ├── related_code_builder.py     (6.5)
+│   └── source_scanner.py           (6.4 抽出，6.3/6.4/6.5 共用)
+└── schemas/
+    └── code_context.py             (Phase 6 契约)
+```
+
+已知问题 / 技术债：
+
+- Code Context 尚未接入真实 PR 数据（Java 接口 / Python client / 装配 / ReviewService 接线 / Prompt 渲染均未实现）
+- 未实现 Context Size Control 与 Token 控制
+- `_anchors` 只探测 changed range 首尾两行，跨 3 个及以上类型时中间类型可能漏成 anchor
+- Python 多行字符串属性的 `end_line` 停在起始行
+- Java 4 层以上嵌套泛型方法、含匿名类初始化的字段、类内部 interface/abstract 无 body 声明方法可能漏识别
+- 全部定位为启发式，`source=HEURISTIC`，`confidence ≤ 0.9`
+
+当前状态：
+
+```text
+Phase 6：Code Context 🟡 进行中（6.1 ~ 6.5 已完成，未接入真实数据）
+```
+
+下一步：
+
+```text
+Phase 6.6：Context Size Control + Token 控制
+        ↓
+Java PR Context 接口 → Python client → CodeContext 装配
+        ↓
+ReviewService / Prompt 接线 → 真实 PR 联调
+```
+
+---
+
+### 2026-10-08
+
+Phase 6.6.1 ~ 6.6.4（Context Size Control + Token 控制）与 Phase 6.7.1（Java 侧 PR Context 读取）完成。
+
+已完成：
+
+- [x] Phase 6.6.1：预算数据模型 — commit `ca97606`
+  - `ContextBudget` / `ContextStats` / `Truncation`；`RelatedCodeContext.truncated`、`MethodContext.truncated`、`ClassContext.header_end_line`；`FileContext` / `CodeContext` 追加 `stats` / `truncation`（全部向后兼容）
+  - `estimate_tokens(text) = ceil(other_chars/3) + cjk_chars`（确定性、无 tokenizer、无网络）
+- [x] Phase 6.6.2：单文件 Context Size Control — commit `e3f0b3c`
+  - `measure_context`（只测不裁，`content` / 未变更 classes 只进 `retained_source_chars`）
+  - `apply_context_budget`：related 按优先级整条删；METHOD/CONSTRUCTOR/FIELD 超限即删、NESTED_TYPE 可降级声明头；changed code 与 diff 不动；输入不可变、幂等；保留条目保持输入顺序
+  - `class_context_builder` 最小改动填充 `header_end_line`
+- [x] Phase 6.6.3：多文件 Context Budget — commit `f4192dd`
+  - `plan_file_budgets`（权重 `1 + changed_method_count`、floor 优先、确定性降级）、`apply_context_budget_to_files`（全局二次削减，changed 仍受保护）、`aggregate_stats`
+- [x] Phase 6.6.4：Token 控制 — commit `d3ecb2f`
+  - `tokens_for_chars` / `chars_for_tokens` / `budget_from_tokens`；未引入任何 Token SDK；未改 6.6.1~6.6.3 行为
+- [x] Phase 6.7.1：Java 侧 PR Context 读取 — **尚未提交**
+  - `ReviewContextProperties`（`review.context.*`，已登记 `@EnableConfigurationProperties` + `application.yml`）
+  - `GithubPullRequestFilesClient`（`GET /pulls/{n}/files`、per_page=100、Link 分页、max-files 即停、max-fetch-pages、顺序保持）+ `PullRequestFile`
+  - `PrContextFile` / `PrContextResponse` / `PrContextService` / `PrContextController`（`GET /api/tasks/{taskId}/pr-context`）
+  - `GithubFileContentClient` 修复：URI 分段编码、encoding/size/二进制保护、合法空文件保留；`GithubPullRequestClient` 追加 Token overload；`FileContent` 追加 `contentReason`
+  - Installation Token 单次复用（一次构建只取一次 Token，无全局缓存）
+  - `content_reason`：`removed` / `unsupported_language` / `too_large` / `binary` / `fetch_failed:<status>`
+
+6.7.1 设计决策（已确认）：
+
+- `max-file-bytes` 无法在 `pulls/{n}/files` 阶段预知 → 采用 contents 响应后的 `size`/解码长度防护，不新增 Git Trees/Blobs API
+- `TaskNotFoundException` 在控制器内局部返回 404；其他 GitHub/Token 异常沿用现有异常传播（容器 5xx），不新增全局错误响应体系
+- `content_available` / `content_truncated` / `content_reason` 保持蛇形字段，作为 6.7.2 Python 契约
+
+测试结果：
+
+- [x] Python 全量：**904 passed**（`test_diff_parser` 77 / `test_code_context_schemas` 152 / `test_file_context_builder` 76 / `test_method_context_builder` 120 / `test_class_context_builder` 131 / `test_related_code_builder` 89 / `test_context_size_controller` 180 / Phase 5 及更早 79）
+- [x] Java 全量：**202 passed**（基线 152 + 6.7.1 新增 50）
+- [x] `git diff --check` 通过；本次 Python 零修改
+
+当前状态：
+
+```text
+Phase 6：Code Context 🟡 进行中（6.1~6.7.1 已完成，Python 侧取码未接入；Phase 6 未完成）
+```
+
+下一步：
+
+```text
+Phase 6.7.2：Python PrContext DTO + PrContextClient
+        ↓
+CodeContextBuilder：PrContext → CodeContext 装配
+        ↓
+ReviewService 接线（取码失败降级 degraded）→ Prompt 渲染 → 真实 PR 联调
+```
+
+---
+
+### 2026-10-08 (2)
+
+Phase 6.7.2（Python PrContext DTO + PrContextClient）完成。
+
+已完成：
+
+- [x] `agent/app/schemas/pr_context.py`：`PrContext` + `PrContextFile`
+  - 严格对应 Java `GET /api/tasks/{taskId}/pr-context`；普通字段沿用既有 camelCase 映射（与 `TaskMessage` 一致）
+  - `content_available` / `content_truncated` / `content_reason` 固定蛇形（camelCase 变体被忽略/拒绝）；`content=null` 与合法空文件 `content=""` 区分保留
+  - `content_reason` 原样保留 `removed` / `unsupported_language` / `too_large` / `binary` / `fetch_failed:*`
+  - `path` / `status` 必需（缺失 → ValidationError），计数器与可选字段带容错默认值
+- [x] `agent/app/context/pr_context_client.py`：`PrContextClient.fetch(task_id) -> PrContext`（async，httpx.AsyncClient）
+  - base URL 复用 `settings.JAVA_SERVICE_URL`；新增 `settings.PR_CONTEXT_TIMEOUT`（30s）并同步 `.env.example`
+  - 非 2xx / 非 JSON / Schema 不符：记录日志后原样抛出（与 `AiServiceClient` / `JavaServiceClient` 约定一致）
+  - 纯传输层，不做装配 / Prompt / 业务判断；日志不输出文件内容
+- [x] 测试 44 项（`test_pr_context_schemas.py` 29 + `test_pr_context_client.py` 15）
+- [x] Python 全量 948/948（基线 904 + 新增 44）；`git diff --check` 通过
+
+设计决策：
+
+- DTO 普通字段用与 `TaskMessage` 相同的 camelCase 字段名直接反序列化；内容状态三字段用蛇形与 Java `@JsonProperty` 对齐
+- 客户端采用 async（与未来消费者 `ReviewService`、现有 `DeepSeekClient` 一致），不新增 HTTP 依赖
+- 失败降级（不得触发 Phase 4 无限重试）留到 6.7.3/6.7.4 接线实现，本阶段不提前加入
+
+当前状态：
+
+```text
+Phase 6：Code Context 🟡 进行中（6.1~6.7.2 已完成；装配与 Prompt 未实现；Phase 6 未完成）
+```
+
+下一步：
+
+```text
+Phase 6.7.3：CodeContextBuilder：PrContext → CodeContext 装配
+```
+
+---
+
+### 2026-10-08 (3)
+
+Phase 6.7.3（CodeContextBuilder）完成。
+
+已完成：
+
+- [x] `agent/app/context/code_context_builder.py`：`CodeContextBuilder.build(pr_context) -> CodeContext`（纯装配：无 IO、无预算裁剪、无 Prompt）
+- [x] 复用 Phase 6.1~6.5 全链路：`parse_patch → build_file_context → attach_method_contexts → attach_class_contexts → attach_related_code`（未新增第二套 Context 模型，未改任何既有模块）
+- [x] 字段映射：
+  - `repository = owner/repo`、`pr_number`、`head_sha = commitSha`；`base_sha = None`（Java 只给 base 分支名，不伪造 SHA）
+  - `path/status/patch/previousPath → FileDiff`（patch=None → `patch_available=false`；renamed → `previous_path`）
+  - `content → FileContent { path, revision, content, error=content_reason } → FileContext.content / line_count / content_available`
+  - `content_reason` 保留在 `content.error` 与 `notes`；文件顺序与 Java 一致
+- [x] 不可用内容安全语义：`content=null` 不伪造代码（methods/classes/changed_symbols/related_code 全空、line_count=0）；单文件不可用不影响整体；removed → `skipped_reason="file removed at head revision"`
+- [x] 未应用预算（`stats/truncation` 保持 None），未把 title/state/refs 复制进 CodeContext，未做 schema 结构调整
+- [x] 测试 30 项（`test_code_context_builder.py`）；Python 全量 978/978（基线 948 + 30）；6.1~6.6 零回归；`git diff --check` 通过
+
+设计决策：
+
+- `base_sha` 保持 None（不把 ref 名当 SHA）；不新增字段
+- title / state / baseRef / headRef 留在 PrContext，不复制进 CodeContext（不提前为 Prompt 设计字段）
+- 装配与预算解耦：预算由调用方在 6.7.4 显式调用 `apply_context_budget_to_files`（6.6.3）
+
+当前状态：
+
+```text
+Phase 6：Code Context 🟡 进行中（6.1~6.7.3 已完成；ReviewService 接线与 Prompt 未实现；Phase 6 未完成）
+```
+
+下一步：
+
+```text
+Phase 6.7.4：ReviewService 接线（取码失败降级 degraded，不得触发 Phase 4 无限重试）
+```
+
+---
+
+### 2026-10-08 (4)
+
+Phase 6.7.4（ReviewService 接线）完成。
+
+已完成：
+
+- [x] `agent/app/services/review_service.py`：`ReviewService` 新增可选注入 `pr_context_client` / `context_builder` / `context_budget`；`review()` = `_load_context → build_messages → generate_findings → result`
+- [x] `agent/app/api/review_router.py`：生产注入 `PrContextClient`（新增 `get_pr_context_client` 依赖）
+- [x] 正常路径：`PrContextClient.fetch(task_id)` → `CodeContextBuilder.build` → **6.6 预算**（`apply_context_budget_to_files(context.files, budget)`，默认 `DEFAULT_BUDGET`）→ 回填 `CodeContext.stats/truncation`
+- [x] `agent/app/context/context_size_controller.py` 最小追加 `aggregate_truncation(files) -> Truncation`（与 `aggregate_stats` 对称的汇总，未改 6.6 任何既有语义）
+- [x] 失败降级：`_load_context` 捕获 fetch/build/budget 的全部异常，**不抛出** → `status=DEGRADED` + `report.context={available:false, degraded:true, reason:"http_error:404/500|ConnectError|ReadTimeout|ValidationError|ValueError|…"}`；日志 WARNING 明确 "PR context unavailable ... review degrades"；堆栈仅 DEBUG
+- [x] CodeContext **未接入 Prompt / LLM**：`build_messages(request)` 与 `generate_findings(messages)` 与 Phase 5.2 完全一致（测试静态断言 `messages == build_messages(request)`）；context 仅写入 `report.context` 摘要（数量 / estimated_tokens / truncated）
+- [x] Phase 4 重试策略未改动：LLM 失败依旧向上抛出触发既有 retry；context 失败被本地降级，不进入 retry
+- [x] 未注入 client 时保持 Phase 5 行为（`COMPLETED` + `reason:"not_configured"`）
+- [x] 测试 22 项（`test_review_service.py` +17、`test_context_size_controller.py` +5）；Python 全量 **1000/1000**；6.1~6.6 与 Phase 4/5 零回归；`git diff --check` 通过
+
+设计决策：
+
+- `status="DEGRADED"` 复用既有 `ReviewTaskResult.status` 字段表达降级（degraded ≠ failed，任务生命周期仍 COMPLETED），不新增状态机
+- 降级边界只包住 context 获取/装配/预算；LLM 调用在边界之外，真实审查失败仍走 Phase 4 retry
+- `report.context.reason` 只暴露失败类别，不写异常 message（validator 消息可能回显代码）
+- budget 固定执行（未传时用 6.6 默认预算），可注入覆盖；不把 CodeContext 放入 Prompt（留 6.7.5）
+
+当前状态：
+
+```text
+Phase 6：Code Context 🟡 进行中（6.1~6.7.4 已完成；Prompt 未实现；Phase 6 未完成）
+```
+
+下一步：
+
+```text
+Phase 6.7.5：Prompt 接线（CodeContext 渲染进 Prompt + file_path / 行号硬约束）
+```
+
+---
+
+### 2026-10-08 (5)
+
+Phase 6.7.5（Prompt 接线）完成。
+
+已完成：
+
+- [x] `agent/app/prompts/code_context.py`（新）：`render_code_context(context)` / `render_context_unavailable(reason)`；纯渲染，无 IO / 无预算逻辑 / 无 schema 变更
+- [x] 渲染载荷对齐 6.6 预算口径：metadata（repository / PR / sha / stats）+ 每文件 status/language/changes + diff（由 hunks 重建 unified diff）+ changed methods（code + 行号 + changed_ranges + source/confidence）+ related code（kind/lines/reason/source/confidence + code）+ classes / changed_symbols 定位标签
+- [x] 不可用内容：`content: unavailable (reason: removed | unsupported_language | too_large | binary | fetch_failed:<status>)`，无代码围栏、无 "None" 文本；removed 文件的删除 patch 仍可用作证据
+- [x] 截断声明：budget 截断时输出 `Context truncation: THE CODE CONTEXT BELOW IS INCOMPLETE ...`（reasons / dropped / trimmed / removed_chars 全部来自 6.6 记录）；未截断时无声明
+- [x] `agent/app/prompts/review.py`：`build_messages(request, context, context_report)` 三态（legacy / available / degraded）；`SYSTEM_PROMPT` 增加 file_path 与行号硬约束，原有 schema / 规则一字未删
+- [x] `agent/app/services/review_service.py`：`_load_context` 返回 `(context, report)`；`build_messages` 收到渲染后的 CodeContext；只 DEBUG 记录 prompt 字符数（不含内容）
+- [x] 测试 52 项（`test_code_context_prompt.py` 48 + `test_review_service.py` 净增 4）；Python 全量 **1052/1052**；6.1~6.7.4 与 Phase 4/5 零回归；`git diff --check` 通过
+
+设计决策：
+
+- Prompt 只携带 6.6 已度量并裁剪的载荷（diff + changed methods + related + metadata）；full content 与未变更 class 代码按既定契约留在 `retained_source_chars`，不发送，避免绕过预算
+- classes / changed_symbols 仅渲染定位标签（不重复类体代码）；字段类变更由 related code 的 FIELD 项承载
+- reason / truncation / stats 全部读现有字段，不在 Prompt 层重算；`estimated_tokens` 仍是预算载荷的度量（固定声明文本不计入，已知偏差很小）
+- `build_messages` 向后兼容：无 context_report 时输出与 Phase 5.2 逐字节一致；`not_configured` 亦然；只有 degraded 才出现 "PR context unavailable"
+- 渲染文本含不可信源码，禁止入日志（ReviewService 只记录字符数）
+
+当前状态：
+
+```text
+Phase 6：Code Context 🟡 进行中（6.1~6.7.5 已完成；真实 PR 联调未做；Phase 6 未完成）
+```
+
+下一步：
+
+```text
+Phase 6.7.6：真实 PR 端到端联调（LLM 收到真实代码）
+```
+
+---
+
+### 2026-10-08 (6)
+
+Phase 6.7.6（真实 PR E2E 联调）完成并通过验收 —— **Phase 6 正式完成**。
+
+环境修复（本机配置，未改业务代码）：
+
+- [x] `.env` 修复：私钥路径改为实际 pem 文件名；补充 `GITHUB_INSTALLATION_ID=165170316`
+- [x] Docker Desktop 启动 + `docker compose up -d mysql`（3307，既有 volume；未起 compose Redis）
+- [x] Spring 用 `-Dspring-boot.run.workingDirectory=<repo root>` 启动（私钥相对路径按 CWD 解析；spring-boot:run 默认模块目录 → 曾致 /pr-context 500）
+- [x] FastAPI / Worker 从 `.env` 显式导出环境变量启动；Smee 转发重建
+
+真实 PR 联调（PR #3 `test/phase6-e2e`，GitHub API 创建，未合并）：
+
+- [x] task 4：files=3, withContent=2, estimatedTokens=377 → COMPLETED, findings=2
+- [x] task 5（modified 文件）：files=4, withContent=3, estimatedTokens=1188, related_kept=2 → COMPLETED, findings=2
+- [x] task 6（受控 degraded）：坏私钥路径 → /pr-context 500 → DEGRADED, findings=0；Prompt 含 "PR context unavailable"；MySQL COMPLETED / retry_count=0（无 Phase 4 retry）
+- [x] task 7（恢复后）：files=4, withContent=3, estimatedTokens=1203 → COMPLETED, findings=1
+- [x] A~F 逐项核验通过（详见 §9 Phase 6.7.6 条目）：真实取码、预算口径、Prompt 含真实代码切片、findings 行号可溯源、degraded 语义
+- [x] G 回归：Python 1052/1052；Java 202/202（BUILD SUCCESS）；`git diff --check` 通过
+- [x] 安全检查：正常日志无 API Key / JWT / 私钥 / 密码泄漏
+
+结论：
+
+- **真实 E2E PASS**；未发现 6.7.x 业务代码缺陷；问题均为环境/启动配置类（已记入已知问题）
+- **Phase 6 正式完成**，下一阶段只能是 **Phase 7（Static Analysis）**
+
+---
+
 ### 2026-09-26 (2)
 
 Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
@@ -1688,34 +2375,28 @@ Integration Test
 
 # 23. 当前唯一下一步
 
-```text
-Phase 6：Code Context
-```
-
-目标：
+Phase 6（Code Context）已完成并通过真实 PR E2E 验收（6.1 ~ 6.7.6；PR #3 全链路 + 受控 degraded 演练 + 回归 1052/202）。
 
 ```text
-Diff
-  ↓
-Changed File
-  ↓
-Changed Method
-  ↓
-Class
-  ↓
-Imports
-  ↓
-Related Code
-  ↓
-Code Context → 提供给 LLM（files 携带真实代码内容）
+纯 Python：Diff → File Context → Method Context → Class Context → Related Code
+          → Context Size Control / Token 控制 → PrContext DTO / PrContextClient
+          → CodeContextBuilder 装配 → ReviewService 接线（取码失败降级 degraded）
+          → Prompt 渲染（diff + methods + related + 可用性/截断声明 + 行号硬约束）
+Java：    GET /api/tasks/{taskId}/pr-context（分页 + 内容保护 + 单 Token 复用）
+真实 E2E：PR #3（task 4/5/7 COMPLETED，task 6 DEGRADED；未合并）
+          （6.7.1 ~ 6.7.5 尚未提交）
 ```
+
+下一步只能是 **Phase 7：Static Analysis**（Java: PMD / Checkstyle / Semgrep；Python: Ruff / Bandit / Semgrep），并遵循新 Phase 流程：先阅读 / 检查 / 提计划，不直接改代码。
+
+已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 
 不要提前实现：
 
 ```text
-Static Analysis (Phase 7)
 LangGraph Multi-Agent (Phase 8)
 GitHub Comment (Phase 9)
+MySQL 历史记录 (Phase 10)
 RAG
 Milvus
 Dashboard
