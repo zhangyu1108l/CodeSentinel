@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 6：Code Context — ✅ 完成（6.1~6.7.6 全部完成；真实 PR E2E 验收通过）**
+**Phase 7：Static Analysis — ✅ 已完成（正式验收通过；7.1~7.7.2）**
 
 ## 当前任务
 
-Phase 6.7.6（真实 PR E2E 联调）已完成并通过验收（PR #3，task 3~7；含受控 degraded 演练；Python 1052 / Java 202）。下一步：Phase 7（Static Analysis）。
+Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。下一步：Phase 8（LangGraph Multi-Agent，待启动）。
 
 ## 当前总体进度
 
@@ -34,7 +34,7 @@ Phase 3  GitHub API               ✅ 已完成
 Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
-Phase 7  Static Analysis          ⬜ 未开始
+Phase 7  Static Analysis          ✅ 已完成（PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
 Phase 8  LangGraph Multi-Agent    ⬜ 未开始
 Phase 9  GitHub 评论              ⬜ 未开始
 Phase 10 MySQL 历史记录           ⬜ 未开始
@@ -637,16 +637,16 @@ Code Context
 - [x] Context Size Control（Phase 6.6.1 ~ 6.6.3，commits `ca97606` / `e3f0b3c` / `f4192dd`）
 - [x] Token 控制（Phase 6.6.4，commit `d3ecb2f`）
 
-## Phase 6 尚未完成的部分（重要，勿误判为已闭环）
+## Phase 6 完成情况（6.1~6.7.6 全部闭环，已合并 main）
 
-6.1~6.6 完成的是**纯 Python、可离线测试的 Code Context 构建链与预算控制**；6.7.1 提供了 Java 侧 PR Context 只读接口。**Python 侧取码与装配尚未实现**：
+6.1~6.6 完成的是**纯 Python、可离线测试的 Code Context 构建链与预算控制**；6.7.1 提供了 Java 侧 PR Context 只读接口；6.7.2~6.7.5 完成取码、装配、接线与 Prompt 渲染；6.7.6 完成真实 PR E2E 验收。6.1~6.7.6 均已提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）：
 
-- [x] Java 侧 PR Context 只读接口（Phase 6.7.1：`GET /api/tasks/{taskId}/pr-context`，含分页 / 内容保护 / 单 Token 复用；**尚未提交**）
-- [x] Python 侧 `PrContext` DTO + `PrContextClient`（Phase 6.7.2：`schemas/pr_context.py` + `context/pr_context_client.py`；**尚未提交**）
-- [x] `CodeContextBuilder`：`PrContext → CodeContext` 装配（Phase 6.7.3：`context/code_context_builder.py`；**尚未提交**）
-- [x] `ReviewService` 接线（Phase 6.7.4：取码 → 装配 → 预算；取码失败降级 `degraded`，不触发 Phase 4 无限重试；**尚未提交**）
-- [x] Prompt 渲染 Code Context + `file_path` / 行号硬约束（Phase 6.7.5：`prompts/code_context.py` + `build_messages(request, context, context_report)`；**尚未提交**）
-- [x] 真实 PR 端到端联调（Phase 6.7.6：PR #3，webhook → Task → Redis → Worker → PR Context → CodeContext → Budget → Prompt → DeepSeek → Findings 全部通过；含受控 degraded 演练；**尚未提交**）
+- [x] Java 侧 PR Context 只读接口（Phase 6.7.1：`GET /api/tasks/{taskId}/pr-context`，含分页 / 内容保护 / 单 Token 复用；已提交 `16ac526`，PR #4 已合并）
+- [x] Python 侧 `PrContext` DTO + `PrContextClient`（Phase 6.7.2：`schemas/pr_context.py` + `context/pr_context_client.py`；已提交 `16ac526`，PR #4 已合并）
+- [x] `CodeContextBuilder`：`PrContext → CodeContext` 装配（Phase 6.7.3：`context/code_context_builder.py`；已提交 `16ac526`，PR #4 已合并）
+- [x] `ReviewService` 接线（Phase 6.7.4：取码 → 装配 → 预算；取码失败降级 `degraded`，不触发 Phase 4 无限重试；已提交 `16ac526`，PR #4 已合并）
+- [x] Prompt 渲染 Code Context + `file_path` / 行号硬约束（Phase 6.7.5：`prompts/code_context.py` + `build_messages(request, context, context_report)`；已提交 `16ac526`，PR #4 已合并）
+- [x] 真实 PR 端到端联调（Phase 6.7.6：PR #3，webhook → Task → Redis → Worker → PR Context → CodeContext → Budget → Prompt → DeepSeek → Findings 全部通过；含受控 degraded 演练；已提交 `16ac526`，PR #4 已合并）
 
 因此当前 `handler.py` 仍传 `files=[]`（仅影响 Prompt header 的文件列表显示，Context 按 task_id 获取）；`prompts/review.py` 已在 Context 可用时渲染真实代码（diff / changed methods / related code / 不可用原因 / 截断声明），仅在无 Context 配置时保留 Phase 5 的 "no file content" 声明。
 
@@ -746,7 +746,7 @@ Code Context
 - [x] 未引入 tiktoken / tokenizers 等任何 Token SDK；未改 6.6.1~6.6.3 行为
 - [x] 测试 49 项
 
-### Phase 6.7.1：Java 侧 PR Context 读取（**尚未提交**）
+### Phase 6.7.1：Java 侧 PR Context 读取（已提交并合并：PR #4）
 
 - [x] `config/ReviewContextProperties`（`review.context.max-files=50` / `max-file-bytes=262144` / `max-fetch-pages=5` / `include-content-extensions=[java, py]`，含缺省值与扩展名归一化）；已登记到 `@EnableConfigurationProperties`，`application.yml` 同步
 - [x] `github/GithubPullRequestFilesClient`：`GET /repos/{owner}/{repo}/pulls/{number}/files`，`per_page=100`，解析 `Link rel="next"` 分页；达到 `max-files` 立即停止后续请求；`max-fetch-pages` 安全上限；Link 缺失/畸形视为无下一页；保持 GitHub 返回顺序
@@ -768,7 +768,7 @@ Code Context
 - `TaskNotFoundException` 在 `PrContextController` 内局部返回 404；其他 GitHub / Token 异常**沿用项目现有异常传播方式**（容器转 5xx），**不新增全局错误响应体系**
 - `content_available` / `content_truncated` / `content_reason` 保持**蛇形字段名**，作为 6.7.2 Python 侧契约（其余字段沿用项目既有驼峰：taskId / owner / repo / prNumber / commitSha / previousPath / patch / blobUrl）
 
-### Phase 6.7.2：Python PrContext DTO + PrContextClient（**尚未提交**）
+### Phase 6.7.2：Python PrContext DTO + PrContextClient（已提交并合并：PR #4）
 
 - [x] `agent/app/schemas/pr_context.py`：`PrContext` + `PrContextFile`，严格对应 Java `GET /api/tasks/{taskId}/pr-context` 返回结构
   - Java 普通字段沿用项目既有 camelCase 映射（与 `TaskMessage` 一致：taskId / prNumber / commitSha / previousPath / blobUrl / baseRef / headRef）
@@ -790,7 +790,7 @@ Code Context
 - 客户端为 **async**（未来消费者 `ReviewService` 也是 async；与 `DeepSeekClient` 风格一致），传输失败不包装成自定义异常，保持既有客户端约定
 - 超时独立于 `AI_SERVICE_TIMEOUT`（上下文抓取涉及 Java 侧多次 GitHub 调用），但仍是同一套 `settings` 配置体系
 
-### Phase 6.7.3：CodeContextBuilder（**尚未提交**）
+### Phase 6.7.3：CodeContextBuilder（已提交并合并：PR #4）
 
 - [x] `agent/app/context/code_context_builder.py`：`CodeContextBuilder.build(pr_context) -> CodeContext`（装配，无 IO、无预算、无 Prompt）
 - [x] 复用 6.1~6.5 既有链路，不重复实现解析：`parse_patch → build_file_context → attach_method_contexts → attach_class_contexts → attach_related_code`
@@ -812,7 +812,7 @@ Code Context
 - 不把 title/state/refs 复制进 `CodeContext`，避免为 Prompt 阶段提前扩 schema；6.7.4/6.7.5 可同时持有 `PrContext` 与 `CodeContext`
 - 装配阶段不触发预算裁剪（保持 `stats/truncation=None`），预算作为显式步骤由调用方决定
 
-### Phase 6.7.4：ReviewService 接线（**尚未提交**）
+### Phase 6.7.4：ReviewService 接线（已提交并合并：PR #4）
 
 - [x] `agent/app/services/review_service.py`：`ReviewService` 新增可选注入 `pr_context_client` / `context_builder` / `context_budget`；`review()` 流程变为
   `_load_context(request) → build_messages(request) → llm_service.generate_findings(...)`
@@ -837,7 +837,7 @@ Code Context
 - 预算始终执行（未显式传入时用 `DEFAULT_BUDGET`），装配与预算解耦但都由 `ReviewService` 显式调用
 - 不在本阶段把 CodeContext 放进 Prompt（留 6.7.5）；`report.context` 只放摘要（数量/estimated_tokens/truncated），不放代码内容
 
-### Phase 6.7.5：Prompt 接线（**尚未提交**）
+### Phase 6.7.5：Prompt 接线（已提交并合并：PR #4）
 
 - [x] `agent/app/prompts/code_context.py`（新）：`render_code_context(context)` / `render_context_unavailable(reason)`；纯渲染，无 IO、无预算逻辑、无 schema 变更
   - 渲染载荷与 6.6 预算度量同一口径（metadata / diff / changed methods / related code）+ 内容可用性 + stats / truncation 声明
@@ -861,7 +861,7 @@ Code Context
 - `build_messages` 保持向后兼容三态；只有 degraded 输出 unavailable 语句，`not_configured` 保持 Phase 5 行为
 - 渲染文本含不可信源码，禁止写日志；ReviewService 只记录字符数
 
-### Phase 6.7.6：真实 PR E2E 联调（**尚未提交**）
+### Phase 6.7.6：真实 PR E2E 联调（已提交并合并：PR #4）
 
 环境修复（均为本机配置/环境，未改业务代码）：
 - [x] `.env` 陈旧项修复（gitignored，不入库）：私钥路径指向实际存在的 pem 文件；补充真实 `GITHUB_INSTALLATION_ID`（165170316，zhangyu1108l / app codesentinel-lab）
@@ -963,8 +963,9 @@ ReviewContextPropertiesTest            9
 
 ## 已知问题 / 技术债
 
-- 6.7.1 ~ 6.7.6 全链路已就绪并完成真实 PR E2E 验收（PR #3，task 3~7）；**未发现 6.7.x 业务代码缺陷**
-- 6.7.1 / 6.7.2 / 6.7.3 / 6.7.4 / 6.7.5 均尚未提交（工作区改动未 commit）；测试 PR #3 与分支 `test/phase6-e2e` 保留在远端（未合并），MySQL task 3~7 为联调记录
+- 6.7.1 ~ 6.7.6 全链路已就绪并完成真实 PR E2E 验收（PR #3，task 3~8）；**未发现 6.7.x 业务代码缺陷**
+- Phase 6 已提交并合并：commit `16ac526`，PR #4 merge `35ba7a67`，分支 `feature/phase6-code-context` 已删除；测试 PR #3 与分支 `test/phase6-e2e` 保留在远端（未合并），MySQL task 3~8 为联调记录
+- 规模观察（PR #4 自动审查，task 8）：48 文件 PR 的 Java PR Context 构建实测 **30.09s**，超过 Python `PR_CONTEXT_TIMEOUT` 默认 30s → `ReadTimeout` → DEGRADED（降级语义正确，但多文件 PR 会系统性降级）；后续可选：调大超时 / Java 侧并发取 contents / 限制取内容文件数
 - 联调环境问题（非代码缺陷，已在本地处理，`.env` 不入库）：
   - Spring 私钥路径按进程 CWD 解析：`spring-boot:run` 默认工作目录为模块目录 → 需 `-Dspring-boot.run.workingDirectory=<repo root>` 或绝对路径；`.env` 中陈旧私钥文件名与缺失 `GITHUB_INSTALLATION_ID` 已修复
   - Docker Desktop 引擎需先启动（MySQL 走 compose 3307；本机 3306 为无关实例）；Redis 沿用本机 6379
@@ -988,11 +989,11 @@ ReviewContextPropertiesTest            9
 
 **✅ 已完成**
 
-6.1~6.7.6 全部完成并通过真实 PR E2E 验收：构建链（Diff → File → Method → Class → Related）、大小 / Token 预算、Java PR Context 只读接口、Python `PrContext` DTO / Client、`CodeContextBuilder` 装配、`ReviewService` 接线（含取码失败降级）、Prompt 渲染（diff + changed methods + related code + 可用性/截断声明 + file_path/行号硬约束），以及真实 PR 全链路联调（PR #3：task 4/5/7 COMPLETED + task 6 受控 DEGRADED；Python 1052 / Java 202）。已知限制：Imports / namespace / package 分析未实现（不影响本阶段验收，留待后续按需）。
+6.1~6.7.6 全部完成并通过真实 PR E2E 验收：构建链（Diff → File → Method → Class → Related）、大小 / Token 预算、Java PR Context 只读接口、Python `PrContext` DTO / Client、`CodeContextBuilder` 装配、`ReviewService` 接线（含取码失败降级）、Prompt 渲染（diff + changed methods + related code + 可用性/截断声明 + file_path/行号硬约束），以及真实 PR 全链路联调（PR #3：task 4/5/7 COMPLETED + task 6 受控 DEGRADED；Python 1052 / Java 202）。已提交 `16ac526` 并合并至 `main`（PR #4，merge `35ba7a67`）。已知限制：Imports / namespace / package 分析未实现（不影响本阶段验收，留待后续按需）。
 
 ## 当前任务
 
-Phase 7（Static Analysis）尚未开始。按开发流程，新 Phase 首个任务应先阅读文档 / 检查代码与 Git 状态 / 提出实现计划，暂不修改代码。
+Phase 7 已完成（正式验收通过）：7.1（统一静态分析数据结构）、7.2（工具执行框架）、7.3（Ruff 适配器）、7.4（Bandit 适配器）、7.5（Semgrep 适配器）、7.5.1（公共路径校验重构）、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）、7.7.2（Checkstyle 14.3.0 真实联调）已完成（见 §10）。
 
 ## 阻塞问题
 
@@ -1048,23 +1049,244 @@ LLM Agent
 
 ## 子任务
 
+- [x] 统一结果 Schema（Phase 7.1）
 - [ ] Java analyzer adapter
 - [ ] Python analyzer adapter
-- [ ] PMD
-- [ ] Checkstyle
-- [ ] Semgrep
-- [ ] Ruff
-- [ ] Bandit
-- [ ] 统一结果 Schema
-- [ ] Tool Error Handling
+- [x] PMD（Phase 7.6）
+- [x] Checkstyle（Phase 7.7.1）
+- [x] Semgrep（Phase 7.5）
+- [x] Ruff（Phase 7.3）
+- [x] Bandit（Phase 7.4）
+- [x] Tool Error Handling（Phase 7.2 执行层）
+
+## Phase 7 子阶段
+
+### Phase 7.1：统一静态分析数据结构（已完成，待验收）
+
+- [x] `agent/app/schemas/static_analysis.py`（新）：`StaticAnalysisTool`（RUFF / BANDIT / SEMGREP / PMD / CHECKSTYLE）、`StaticAnalysisStatus`（OK / UNAVAILABLE / TIMEOUT / ERROR / PARSE_ERROR）、`StaticAnalysisErrorCode`（TOOL_NOT_FOUND / SPAWN_FAILED / TIMEOUT / PROCESS_FAILED / INVALID_OUTPUT / SCHEMA_MISMATCH / UNKNOWN）、`StaticAnalysisFinding`、`StaticAnalysisResult`
+- [x] `category` / `severity` 直接复用 `app.schemas.review` 既有枚举，不新建第二套分类；Finding 不含 confidence（工具不产出校准置信度，不得凭空赋予）
+- [x] Finding 约束：`rule_id` / `message` 非空白；`start_line` ≥ 1；`end_line` ≥ `start_line`；`file_path` 必须为非空仓库相对路径（拒绝绝对路径、UNC、Windows 盘符、`..` 穿越、首尾空白）；行号 1-based（与 Phase 6 契约一致）
+- [x] Result 约束：`OK` 必须无 `error_code` 且允许 findings 为空；非 OK 状态必须有安全 `error_code` 且 findings 必须为空（部分/未验证结果不得伪装成功）；findings 的 `tool` 必须与 result 一致
+- [x] 非零退出码 ≠ 失败：`OK + exit_code=1 + findings` 合法（工具检出问题）；`exit_code` / `duration_ms`（≥0）可选；错误字段只允许有限安全类别，原始 stdout / stderr / 源码 / 异常详情不得进入
+- [x] 测试 126 项（`agent/tests/test_static_analysis_schemas.py`）：枚举、缺失字段、空白值、行号、路径（含绝对/盘符/穿越/合法相对）、OK 空 findings、非 OK 约束、退出码区分、duration_ms 边界、序列化/反序列化、工具一致性；全部合成数据，无网络 / 无外部工具 / 无 DeepSeek
+- [x] Python 全量 1178/1178（基线 1052 + 新增 126）；不改依赖与构建文件；未接入 ReviewService / Prompt；未实现 runner / 适配器
+
+**Phase 7.1 设计决策**
+
+- 路径与行号校验放在 Schema 层（`field_validator` / `model_validator`），后续适配器只负责把工具原始输出规范化到该契约
+- 非 OK 状态强制要求 `error_code` 且禁止 findings：无独立的"部分结果"字段，杜绝失败结果被当作完整成功结果消费
+- `findings[].tool` 保留工具来源，允许未来多工具结果合并时不丢溯源
+- 工具规则到 `Category` / `Severity` 的映射由适配器（7.3+）负责，Schema 只复用枚举
+
+### Phase 7.2：工具执行框架（已完成，待验收）
+
+- [x] `agent/app/analyzers/`（新包）：`execution.py`（执行请求 / 结果模型、`Executor` 协议、默认 `SubprocessExecutor`）、`json_output.py`（JSON 解析边界）、`tool_runner.py`（`ToolRunner` 封装）
+- [x] `CommandExecutionRequest`：command 必须为非空参数列表（首元素非空白、禁 NUL；字符串命令直接拒绝）；`cwd` 可选（非空白、禁 NUL，执行器启动前校验必须为已存在目录）；`timeout_seconds` 默认 60s（0 < t ≤ 600）；`max_output_bytes`（每流）默认 1 MiB（1 ≤ n ≤ 16 MiB）
+- [x] `CommandExecutionResult`：`status` / `exit_code`（无法取得为 None）/ `stdout` / `stderr` / `duration_ms` / `stdout_truncated` / `stderr_truncated` / `error_code` / `truncated` 派生属性；`COMPLETED` 允许任意退出码且不得带 `error_code`（非零退出码 ≠ 失败）；非 COMPLETED 必须带安全 `error_code`；`UNAVAILABLE` 不得带退出码
+- [x] 执行语义：`shell=False` 恒成立；可执行文件缺失 → `UNAVAILABLE` + `TOOL_NOT_FOUND`（不启动进程）；cwd 无效 / 启动 OSError → `ERROR` + `SPAWN_FAILED`；超时 → 杀进程（POSIX 杀进程组）→ `TIMEOUT` + `TIMEOUT`；意外异常 → `ERROR` + `UNKNOWN`
+- [x] 输出限制：stdout / stderr 各由 daemon 线程并行读取，最多保留 `max_output_bytes` 字节，超出部分持续排空并丢弃（避免子进程因管道写满阻塞），内存上限 = 每流限额；截断 / 未排空均显式标记，不伪装完整输出
+- [x] `parse_json_output`：区分 `VALID` / `EMPTY`（空白输出）/ `INVALID`（非空但非法 JSON）；普通文本绝不当作 JSON 成功；非 VALID 一律 `INVALID_OUTPUT`，不携带异常文本或源码
+- [x] `ToolRunner`：可注入 `Executor`（默认 `SubprocessExecutor`），统一默认超时 / 输出上限并支持单次覆盖；不解析 JSON、不解释退出码、不产出 findings
+- [x] 测试 3 个文件共 133 项（`test_analyzer_execution.py` / `test_analyzer_json_output.py` / `test_analyzer_tool_runner.py`）：fake executor 覆盖分支；真实子进程仅用 `sys.executable`（可信、无外部分析器、无网络）验证退出码 / 超时 / 截断 / 缺失工具 / cwd
+- [x] 未安装任何工具、未改依赖与构建文件、未实现适配器 / 调度器 / 聚合器 / Prompt / Java 改动
+
+**Phase 7.2 设计决策**
+
+- 执行层只回答"进程如何结束"，与"分析是否成功 / 有无 findings"解耦：非零退出码保持 `COMPLETED`，最终 `StaticAnalysisStatus` 由适配器结合 JSON 解析决定
+- `ExecutionStatus`（COMPLETED / UNAVAILABLE / TIMEOUT / ERROR）与 7.1 状态语义对齐但不复用，避免把进程完成误当分析成功
+- 错误只暴露 `StaticAnalysisErrorCode`；默认日志仅记录可执行文件名 / 状态 / 退出码 / 耗时与异常类型，不记录 stdout / stderr 内容
+- 同步执行（subprocess 阻塞）；未来接入 async `ReviewService` 时由调用方用 `asyncio.to_thread` 包装，本阶段不引入 async executor
+- 命令由调用方（适配器）以固定参数列表构造；框架拒绝字符串命令，PR 内容不进入命令拼接
+
+### Phase 7.3：Ruff 适配器（已完成，待验收）
+
+- [x] `agent/app/analyzers/ruff_adapter.py`（新）：`RuffAdapter.analyze(repo_dir, file_paths) -> StaticAnalysisResult`，经 `ToolRunner` 执行，复用 `parse_json_output`
+- [x] 命令构造：`ruff check --output-format json --isolated --no-cache <files...>`（参数列表、`shell=False`；`--isolated` 禁止读取被审仓库配置，`--no-cache` 不在工作区留缓存；规则选择暂用 Ruff 默认，留待规则引擎阶段）
+- [x] 输入校验：`repo_dir` 必须为已存在目录；目标必须为仓库相对 `.py` / `.pyi` 且存在于仓库内（拒绝绝对 / 盘符 / UNC / `..`、`.`、空段、首尾空白、字符串形式的 file_paths、空列表；反斜杠归一为正斜杠；重复目标去重）；非法输入抛 `ValueError`，不启动进程
+- [x] 状态映射：执行层 UNAVAILABLE / TIMEOUT / ERROR 原样映射并透传安全 `error_code`；`COMPLETED` 且退出码 ∈ {0, 1} 才进入 JSON 解析（Ruff：0 无诊断 / 1 有诊断；非零退出码 ≠ 失败）；其他退出码 → `ERROR` + `PROCESS_FAILED`
+- [x] 解析策略：stdout 被截断 → `PARSE_ERROR` + `INVALID_OUTPUT`；空 / 非法 JSON → `PARSE_ERROR` + `INVALID_OUTPUT`；非 list、条目缺失 / 非法字段（含缺失或非法行号、code 为 null / 空白、message 空白、end_row < row）→ `PARSE_ERROR` + `SCHEMA_MISMATCH`；任一非法条目使整次运行失败，不输出部分 findings；仅 stderr 截断不影响 JSON 结果
+- [x] 诊断映射：`tool=RUFF`；`rule_id` 取 Ruff 规则码；`file_path` 归一为仓库相对正斜杠路径且必须属于请求目标（仓库内绝对路径可归一；仓库外 / 穿越 / 未请求文件一律拒绝）；行号 1-based；`message` 原样保留
+- [x] 类别映射：前缀表（`S`→SECURITY、`B`/`TRY`/`BLE`→BUG、`PERF`→PERFORMANCE、其余→QUALITY）+ 精确覆盖（`F811`/`F821`/`F822`/`F823`→BUG）；严重度由类别派生（SECURITY→HIGH、BUG→MEDIUM、PERFORMANCE→LOW、QUALITY→INFO）；未新增枚举值
+- [x] 安全：不拼接 PR 内容、不扫描整个仓库；错误字段只暴露 `StaticAnalysisErrorCode`；日志不含 stdout / stderr / 诊断消息 / 源码
+- [x] 测试 126 项（`test_analyzer_ruff_adapter.py`，fake executor + 合成 JSON，未安装 / 未调用真实 Ruff）：命令构造、单 / 多条映射、类别与严重度、非零退出码、工具缺失、超时、启动失败、空 / 非法 / 结构错误 JSON、非法行号、截断、路径穿越 / 绝对路径、输入校验、结果契约
+- [x] Python 全量 1437/1437（基线 1311 + 新增 126）；未安装 Ruff、未改依赖 / 构建 / 7.1 Schema / 7.2 框架
+
+**Phase 7.3 设计决策**
+
+- 退出码只作为进入 JSON 解析的门槛（0/1），不直接等同失败或成功；最终结论由 JSON 结果决定
+- 对工具输出保持零信任：任一无法安全映射的条目使整次运行 `SCHEMA_MISMATCH`，与 7.1“非 OK 不携带 findings”一致，杜绝部分结果伪装成功
+- 路径映射要求诊断文件必须属于调用方请求的目标集合，防止工具输出把 finding 锚定到未请求文件
+- `--isolated` / `--no-cache`：结果不受被审仓库配置影响，且不在被审工作区留下缓存
+
+### Phase 7.4：Bandit 适配器（已完成，待验收）
+
+- [x] `agent/app/analyzers/bandit_adapter.py`（新）：`BanditAdapter.analyze(repo_dir, file_paths) -> StaticAnalysisResult`，经 `ToolRunner` 执行，复用 `parse_json_output` 与 Ruff 适配器的路径守卫（只导入，未修改 RuffAdapter）
+- [x] 命令构造：`bandit -f json <files...>`（参数列表、`shell=False`；不带 `-r` —— 不扫描目录，且 Bandit 仅在 `-r` 时自动读取仓库 `.bandit` 配置；不带 `--exit-zero` —— 保留退出码 1；规则集为 Bandit 默认）
+- [x] 输入校验：与 Ruff 适配器共用同一守卫（`repo_dir` 必须存在；目标为仓库内已存在 `.py` / `.pyi`；拒绝绝对 / 盘符 / UNC / `..`、`.`、空段 / 首尾空白 / 字符串 targets / 空列表；反斜杠归一、重复去重）；非法输入抛 `ValueError`，不启动进程
+- [x] 状态映射：执行层 UNAVAILABLE / TIMEOUT / ERROR 原样映射并透传安全 `error_code`；`COMPLETED` 且退出码 ∈ {0, 1} 才进入 JSON 解析（Bandit：0 无问题 / 1 发现问题；非零 ≠ 失败）；其他退出码 → `ERROR` + `PROCESS_FAILED`
+- [x] 解析策略：stdout 截断 → `PARSE_ERROR` + `INVALID_OUTPUT`；空 / 非法 JSON → `PARSE_ERROR` + `INVALID_OUTPUT`；顶层非对象、缺 `results` / `errors`、类型错误、条目非法（缺字段、test_id / issue_text 空白、行号非法、line_range 非法、severity / confidence 非法、end < start）→ `PARSE_ERROR` + `SCHEMA_MISMATCH`；`errors` 非空 → `ERROR` + `PROCESS_FAILED`（扫描不完整不得伪装成功）；任一非法条目使整次运行失败，不输出部分 findings；仅 stderr 截断不影响 JSON 结果
+- [x] 诊断映射：`tool=BANDIT`、`category=SECURITY`；`rule_id=test_id`；`message=issue_text`；`start_line=line_number`；`end_line=max(line_range)`（有可信跨度时），否则等于 `start_line`（保守、不伪造跨度）；`file_path` 归一为仓库相对正斜杠且必须属于请求目标
+- [x] 严重度：`issue_severity` 1:1 映射（LOW / MEDIUM / HIGH → 既有枚举），不代表最终漏洞风险；`issue_confidence` 仅校验（LOW / MEDIUM / HIGH），不写入 Schema、不影响严重度
+- [x] 安全：不拼接 PR 内容、不扫描整个仓库、不读取仓库配置；错误字段只暴露 `StaticAnalysisErrorCode`；日志不含 stdout / stderr / 扫描错误原因
+- [x] 测试 133 项（`test_analyzer_bandit_adapter.py`，fake executor + 合成 JSON，未安装 / 未调用真实 Bandit）：命令构造、状态与退出码、单 / 多条映射、严重度与类别、置信度处理、行号与跨度、空 / 非法 / 结构错误 JSON、扫描 errors、截断、路径归一与拒绝、输入校验、结果契约
+- [x] Python 全量 1570/1570（基线 1437 + 新增 133）；未安装 Bandit、未改依赖 / 构建 / 7.1 Schema / 7.2 框架 / RuffAdapter
+
+**Phase 7.4 设计决策**
+
+- 显式文件目标 + 不使用 `-r`：既不扫描整个仓库，也天然避免读取被审仓库的 `.bandit` 配置（Bandit 官方文档：`.bandit` 仅在 `-r` 时自动发现）
+- `errors` 非空即判 `PROCESS_FAILED`：Bandit 已声明部分文件未完成分析，与 7.1"非 OK 不携带 findings"一致，不把部分扫描当完整结果
+- `end_line` 缺省为 `start_line`：Bandit 无跨度时保守处理，绝不外推伪造范围；跨度与起始行矛盾时整次运行失败
+- 路径守卫复用 `ruff_adapter` 的私有辅助函数（导入方式，未修改其代码）；两个适配器执行完全相同的路径规则，后续适配器增多时可抽取公共模块
+
+### Phase 7.5：Semgrep 适配器（已完成，待验收）
+
+- [x] `agent/app/analyzers/semgrep_adapter.py`（新）：`SemgrepAdapter.analyze(repo_dir, file_paths) -> StaticAnalysisResult`，经 `ToolRunner` 执行，复用 `parse_json_output`
+- [x] 可信规则配置：构造器要求调用方提供 `config_path`（必须存在且为文件；每次运行校验不得位于被审仓库内）；命令只传 `--config=<绝对可信路径>`，不使用 `--config auto` / 注册表 / URL / 被审仓库 `.semgrep`、`semgrep.yml`
+- [x] 命令构造：`semgrep scan --json --metrics=off --disable-version-check --no-git-ignore --config=<trusted> <files...>`（参数列表、`shell=False`；`--metrics=off` 禁遥测、`--disable-version-check` 禁版本检查、`--no-git-ignore` 防仓库 .gitignore 隐藏显式目标）
+- [x] 目标校验自带路径守卫（不新增跨模块私有依赖）：仓库内已存在文件、拒绝绝对 / 盘符 / `..`、`.`、空段、NUL、首尾空白、字符串 targets；反斜杠归一正斜杠、重复去重；多语言（无后缀限制）
+- [x] 状态映射：执行层 UNAVAILABLE / TIMEOUT / ERROR 原样映射并透传安全 `error_code`；`COMPLETED` 且退出码 ∈ {0, 1} 才进入 JSON 解析（Semgrep：0 OK / 1 有发现；2 fatal / 3 invalid target / 5 YAML / 7 missing config 等 → `ERROR` + `PROCESS_FAILED`）
+- [x] 解析策略：stdout 截断 → `PARSE_ERROR` + `INVALID_OUTPUT`；空 / 非法 JSON → `PARSE_ERROR` + `INVALID_OUTPUT`；顶层非对象、缺 `results` / `errors` / `paths.scanned`、类型错误、条目非法（check_id / message 空白或非法、severity 未知、start / end 行号非法、end < start）→ `PARSE_ERROR` + `SCHEMA_MISMATCH`；任一非法条目使整次运行失败
+- [x] 扫描完整性：`errors` 非空 → `ERROR` + `PROCESS_FAILED`；`paths.scanned` 归一后必须覆盖全部请求目标，否则 `ERROR` + `PROCESS_FAILED`（`.semgrepignore` 静默跳过等不完整扫描不伪装成功）；多余 scanned 条目容忍
+- [x] 诊断映射：`tool=SEMGREP`；`rule_id=check_id`；`message=extra.message`；`start_line=start.line`；`end_line=end.line`（存在时）否则等于 `start_line`（不伪造位置）；`file_path` 归一为仓库相对正斜杠且必须属于请求目标（Windows 下按文件系统大小写不敏感匹配并回传目标拼写）
+- [x] 严重度：`extra.severity` 明确映射（ERROR→HIGH、WARNING→MEDIUM、INFO→LOW），不代表最终风险结论；未知值 → `SCHEMA_MISMATCH`
+- [x] 类别：优先可信规则元数据 `extra.metadata.category`（security→SECURITY、correctness→BUG、performance→PERFORMANCE、best-practice / maintainability / portability→QUALITY），其次 check_id 稳定段回退，保守默认 QUALITY（不武断归为安全漏洞）
+- [x] 安全：不拼接 PR 内容、不扫描目录、不读取仓库配置、不隐式联网；错误只暴露 `StaticAnalysisErrorCode`；日志不含 stdout / stderr / message / 源码
+- [x] 测试 159 项（`test_analyzer_semgrep_adapter.py`，fake executor + 合成 JSON，未安装 / 未调用真实 Semgrep）：命令与可信配置、状态与退出码、严重度与类别映射、行号、解析失败、扫描完整性与 errors、截断、路径映射、输入校验、多语言目标、安全与结果契约
+- [x] Python 全量 1729/1729（基线 1570 + 新增 159）；未安装 Semgrep、未改依赖 / 构建 / 7.1 Schema / 7.2 框架 / RuffAdapter / BanditAdapter
+
+**Phase 7.5 设计决策**
+
+- 规则配置安全边界：可信配置由调用方传入且必须在被审仓库之外；`--config` 只接受文件路径（目录 / URL / 注册表均被校验拒绝），因此无需先做架构改造即可满足"不得信任仓库内配置"
+- 完整性双闸门：`errors` 非空与 `paths.scanned` 覆盖不足都判 `PROCESS_FAILED`；已知 `.semgrepignore` 无法用稳定 CLI 关闭，由覆盖检查兜底而非静默部分成功
+- 路径守卫自带（不复用 Ruff / Bandit 私有函数，不新增跨模块依赖）；识别的技术债：建议后续抽取公共 `path_guard` 模块，但本轮不修改既有适配器
+- 类别默认 QUALITY（自定义规则无元数据时不冒充安全漏洞）；严重度为工具级翻译，最终风险由 Validator 判定
+
+### Phase 7.5.1：适配器公共路径校验重构（已完成，待验收）
+
+- [x] `agent/app/analyzers/path_guard.py`（新）：公共路径守卫 `validate_repo_dir` / `validate_targets`（可选后缀策略）/ `normalize_output_path` / `map_output_path`（可选 `fold_case`）/ `is_within`
+- [x] 消除 BanditAdapter 对 RuffAdapter 私有路径函数的跨模块依赖；Ruff / Bandit / Semgrep 统一调用公共模块（仅剩 `_OutputError` 跨模块导入，属输出映射类，按范围未动）
+- [x] 行为保持：Ruff / Bandit 仍限 `.py` / `.pyi`（后缀策略由适配器传入）；Semgrep 无后缀限制；绝对 / 盘符 / UNC / 穿越 / `.` / 空段 / NUL / 首尾空白 / 仓库外目标一律拒绝；归一仓库相对正斜杠；重复去重；存在性校验保留
+- [x] 路径安全：所有包含判断基于 `os.path.realpath` + `os.path.commonpath`（非字符串前缀），符号链接 / junction 逃逸被拒绝；`is_within` 对 `/a/repo` 与 `/a/repository` 不误判；不同盘符不视为包含
+- [x] Windows 大小写：Ruff / Bandit 保持精确匹配，Semgrep 保持 `os.path.normcase` 折叠并回传目标拼写（`fold_case=True`），行为与重构前一致
+- [x] 测试 76 项（`test_analyzer_path_guard.py`）：合法相对路径 / 绝对 / 盘符 / UNC / 穿越 / 空路径 / 重复目标 / 扩展名策略 / 符号链接逃逸（目录级在本机经 junction 实际执行；文件级无权限时 skip 2 项）/ 仓库外输出 / 未请求文件 / Windows 分隔符与大小写映射 / `is_within` 前缀相似不误判
+- [x] Ruff / Bandit / Semgrep 适配器既有测试 418/418 通过（未改任何测试），Python 全量 1805 passed / 2 skipped（基线 1729 + 新增 76）；`git diff --check` 通过
+- [x] 未改公共 API、状态映射、规则映射、Schema、ToolRunner；未安装依赖
+
+**Phase 7.5.1 设计决策**
+
+- 接口按现有调用点最小化：后缀策略作为参数（而非统一限制），`fold_case` 保留 Semgrep 与 Ruff / Bandit 在 Windows 上的既有差异，避免借重构改变行为
+- 目录级逃逸测试在无符号链接权限的 Windows 上使用 junction 回退（`cmd /c mklink /J`）实际执行；文件级符号链接测试无权限时显式 skip
+- `_OutputError` 仍从 ruff_adapter 导入到 bandit_adapter（非路径辅助，属输出映射公共化，留待后续按需处理）
+
+### Phase 7.6：PMD 适配器（已完成，待验收）
+
+- [x] `agent/app/analyzers/pmd_adapter.py`（新）：`PMDAdapter.analyze(repo_dir, file_paths) -> StaticAnalysisResult`，经 `ToolRunner` 执行，复用 `parse_json_output` 与 `path_guard`
+- [x] 依据（已核对官方文档与源码）：PMD 7.x CLI（`pmd check`；`--rulesets` 必填，可为 classpath 引用 / 文件 / URL；`--dir` 支持文件；`--no-cache`、`--no-progress`、`--format`）；退出码 0=无问题 / 4=发现问题 / 1=异常 / 2=用法错误 / 5=可恢复错误；JSON 结构按 PMD `JsonRenderer` 源码核对（`formatVersion` / `pmdVersion` / `timestamp` / `files` / `suppressedViolations` / `processingErrors` / `configurationErrors` 恒存在；violation 含 beginline / begincolumn / endline / endcolumn / description / rule / ruleset / priority / 可选 externalInfoUrl）
+- [x] 命令构造：`pmd check --no-cache --no-progress --format=json --rulesets=<ref>... --dir=<file>...`（参数列表、`shell=False`；全部选项值用 `=` 挂接，文件名以 `-` 开头也不会被解析为选项；不用 `--report-file`（报告留在 stdout，日志走 stderr）；不用 `--no-fail-on-violation` / `--no-fail-on-error`（保留退出码 4/5 可观测））
+- [x] 规则集可信边界：构造函数必须传入规则集引用；classpath 引用（`category/…xml` / `rulesets/…xml`）直接通过，外部文件须存在且每次运行校验不得位于被审仓库内；拒绝 http / https / file URL（不联网、不下载规则）
+- [x] 目标：仅显式仓库相对 `.java` 文件（项目 Java 审查范围），不扫描目录；绝对 / 盘符 / UNC / 穿越 / `.` / 空段 / NUL / 首尾空白 / 不存在 → `ValueError` 且不启动进程
+- [x] 状态映射：UNAVAILABLE / TIMEOUT / ERROR 透传安全 `error_code`；`COMPLETED` 且退出码 ∈ {0, 4} 才解析 JSON（4 = 发现问题，非零 ≠ 失败）；1 / 2 / 5 → `ERROR` + `PROCESS_FAILED`
+- [x] 解析策略：stdout 截断 → `PARSE_ERROR` + `INVALID_OUTPUT`；空 / 非法 JSON → `PARSE_ERROR` + `INVALID_OUTPUT`；顶层非对象、缺 `files` / 三个数组字段、类型错误、条目非法（缺字段、rule / description 空白、priority 非法、行号非法、end < start、ruleset 空白）→ `PARSE_ERROR` + `SCHEMA_MISMATCH`；任一非法条目使整次运行失败
+- [x] 扫描完整性：`processingErrors` 或 `configurationErrors` 非空 → `ERROR` + `PROCESS_FAILED`（可恢复错误可能意味着漏报，不伪装成功）；`suppressedViolations` 忽略（代码已主动抑制）
+- [x] 诊断映射：`tool=PMD`；`rule_id=rule`；`message=description`；`start_line=beginline`；`end_line=endline`（缺省等于 beginline，不伪造）；`file_path` 仓库相对正斜杠且必须属于请求目标（未请求文件 → `SCHEMA_MISMATCH`）
+- [x] 严重度：priority 明确映射（1→HIGH、2→MEDIUM、3→MEDIUM、4→LOW、5→INFO），工具级翻译非最终风险；非法值 → `SCHEMA_MISMATCH`
+- [x] 类别：按 ruleset 映射（Error Prone / Multithreading→BUG、Security→SECURITY、Performance→PERFORMANCE、Best Practices / Code Style / Design / Documentation→QUALITY），未知或缺失保守默认 QUALITY
+- [x] 安全：不拼接 PR 内容、不扫描目录、不读仓库规则、不联网；错误只暴露 `StaticAnalysisErrorCode`；日志不含 stdout / stderr / 描述 / 源码
+- [x] 测试 169 项（`test_analyzer_pmd_adapter.py`，fake executor + 合成 JSON，未安装 / 未调用真实 PMD）：命令与规则集校验、状态与退出码、字段与类别 / 严重度映射、行号、解析失败、扫描完整性、截断、路径映射、输入校验、安全与结果契约
+- [x] 回归：Ruff / Bandit / Semgrep / PathGuard 494 passed / 2 skipped（既有测试未改）；Python 全量 1974 passed / 2 skipped（基线 1805 + 新增 169）；`git diff --check` 通过
+- [x] 未安装 PMD、未改依赖 / 构建 / 7.1 Schema / 7.2 框架 / `path_guard` / 既有适配器
+
+**Phase 7.6 设计决策**
+
+- 目标版本 PMD 7.x（本机未安装；CLI、退出码与 JSON 结构均按官方文档与 `JsonRenderer` 源码核对；PMD 6.x 无 `check` 子命令且退出码不同，不在支持范围）
+- 规则集引用由可信调用方提供；classpath 引用与外部文件两种形态，URL 一律拒绝；文件引用必须在被审仓库之外
+- 仅接受 `.java` 目标；语言版本使用 PMD 默认，未加 `--use-version`（避免臆造版本标识）
+- 选项值统一 `=` 挂接，杜绝文件名以 `-` 开头导致的选项注入
+- 可恢复错误（exit 5 / `processingErrors` / `configurationErrors`）一律 `PROCESS_FAILED`，遵循"部分结果不伪装成功"
+
+### Phase 7.6.1：PMD 启动方式安全补丁（已完成，待验收）
+
+- [x] 背景：实测确认 Windows 下经 `pmd.bat` 启动时参数会被系统命令解释器二次解析（无空格的 `&` 可执行额外命令）；PMD 目标路径来自不可信 PR 文件名，必须先修复再联调
+- [x] `pmd_adapter.py` 改为 **java 直连**：`java -cp "<pmd_home>/conf<pathsep><pmd_home>/lib/*" net.sourceforge.pmd.cli.PmdCli check ...`（参数列表、无 shell、`os.pathsep` 拼接；JVM 展开 `lib/*` 通配符；与发行包 `bin\pmd.bat` 的 classpath 布局一致）
+- [x] 主类与布局依据（对本地 PMD 7.28.0 发行包只读核对）：`bin\pmd.bat` 调用 `net.sourceforge.pmd.cli.PmdCli`、classpath 为 `conf;lib/*`；`jar tf pmd-cli-7.28.0.jar` 确认 `PmdCli.class` 存在；直连 `--version` / `check --help` 实测 exit 0
+- [x] 新增 `pmd_home` 配置与校验：目录、`conf`、`lib`、lib 至少 1 个 jar；相对路径解析为 realpath；缺失 / 非目录 / lib 无 jar → `ValueError`
+- [x] Java 启动器校验：按执行器同款解析（裸名 `shutil.which`、显式路径 realpath），对**解析结果**拒绝 `.bat` / `.cmd`（防 PATH 中同名批处理绕过），且必须为已存在文件；不再使用 `executable` 参数
+- [x] 行为保持：退出码 0/4 接受、1/2/5 → `PROCESS_FAILED`；JSON 解析、错误映射、超时、输出限流、`path_guard`、finding 映射全部不变
+- [x] 测试 204 项（原 169 + 净增 35）：命令构造（java / -cp / 主类）、多 ruleset / target、pmd_home 含空格、目录与 JAR 校验、java 启动器校验（含裸名解析到 .bat 的拒绝）、敌意文件名（`&` `%` `!` `^` 括号与空格）逐字传递且映射回填、真实 `SubprocessExecutor` 参数不经 shell 的回归
+- [x] 回归：Ruff / Bandit / Semgrep / PathGuard / PMD 698 passed / 2 skipped；Python 全量 2009 passed / 2 skipped（基线 1974 + 净增 35）；`git diff --check` 通过
+- [x] 未改通用执行器、其他适配器、Schema、依赖；真实 PMD 文件扫描联调仍未执行（下一步）
+
+**Phase 7.6.1 设计决策**
+
+- 用"移除 shell"结构性消除参数注入，而不是黑名单拒绝文件名中的元字符（后者不完整且会误伤合法文件）
+- 启动器校验基于**解析结果**而非输入后缀；解析成功后命令使用解析出的绝对路径，避免执行时 PATH 再次解析的竞态
+- java 缺失时构造即失败（fail-fast）；执行层 `UNAVAILABLE` / `TOOL_NOT_FOUND` 映射保留并在单测中覆盖
+- 直连模式不读取 `PMD_JAVA_OPTS`（pmd.bat 特性）；如需 JVM 调优可后续加 `java_options` 参数
+
+### Phase 7.6.2：PMD 7.28.0 真实联调（已完成，待验收）
+
+- [x] 环境：本地发行包 `D:\tools\pmd\pmd-bin-7.28.0`（PMD 7.28.0 / Java 21）；联调夹具与脚本仅位于系统临时目录（`%TEMP%\opencode\pmd-it-7.6.2`），未创建 / 修改任何项目文件；未绕过适配器（全部经 `PMDAdapter` + 真实 `SubprocessExecutor`）
+- [x] A 干净文件（`package demo;` 的 `Clean.java`）：exit_code=0，status=OK，findings=0，files=[]（PMD 解析成功且无违规；文件缺失 / 不可解析时 PMD 会 exit 1，故 exit 0 可证明已实际分析）
+- [x] B 违规文件（未使用 import）：exit_code=4 → 适配器按既有策略判 OK；findings=1：`rule_id=UnnecessaryImport`、`file_path=Violation.java`、`start_line=3`、`end_line=3`、`severity=LOW`（priority 4）、`category=QUALITY`（Code Style）——字段与 CLI JSON 一致，非零退出码未被误判为失败
+- [x] C 无效 ruleset：
+  - C1 不存在的外部规则集文件 → 构造即 `ValueError`（未启动进程）
+  - C2 不存在的内建引用 `category/java/nonexistent-ruleset.xml` → PMD exit_code=1 → 适配器 `ERROR` + `PROCESS_FAILED`，findings=0（配置错误未伪装成成功的空结果）
+  - C3 存在但引用无效规则的外部 ruleset（XML 合法、ref 不存在）→ 同样 exit_code=1 → `ERROR` + `PROCESS_FAILED`，findings=0
+- [x] D 含空格 PMD_HOME：将发行包 `conf` + `lib` 复制到 `...\pmd home\` 后真实扫描；`pmd_home` 解析保留空格，干净文件 exit 0 / 违规文件 exit 4 + 1 finding，classpath 与参数传递正确
+- [x] E 特殊文件名：`A&b.java`、`Sp ace.java`、`Bang!.java`、`Caret^.java`、`(Paren).java`、`Percent%.java` 六个文件全部被 PMD 扫描（exit 4），findings=6 且 `file_path` 与文件名逐字一致；仅静态分析，未执行 / 导入任何源码
+- [x] 退出码实测（PMD 7.28.0）：无违规=0、有违规=4、规则集 / 配置异常=1；与适配器接受的 {0, 4} 及 1/2/5 → `PROCESS_FAILED` 的映射一致
+- [x] 回归：PMD 适配器 204 passed；agent 全量 2009 passed / 2 skipped；`git diff --check` 通过；无代码改动、无 Git 操作
+- [x] 跳过项：无（A~E 全部实际执行）；临时目录保留供复核，可由用户自行删除
+
+**Phase 7.6.2 结论**
+
+- PMD 7.28.0 真实联调通过：java 直连启动、classpath（含空格路径）、退出码语义、JSON 解析、字段映射、敌意文件名逐字传递、配置错误识别全部符合适配器设计与安全要求
+- 未发现适配器缺陷，无需代码修改；Phase 7.6 / 7.6.1 / 7.6.2 的验收条件已具备
+
+### Phase 7.7.1：Checkstyle 适配器（已完成，待验收）
+
+- [x] `agent/app/analyzers/checkstyle_adapter.py`（新）：`CheckstyleAdapter(runner, config, checkstyle_jar, java_executable="java")`；`analyze(repo_dir, file_paths) -> StaticAnalysisResult`
+- [x] 输出格式依据（Checkstyle 14.3.0 官方 CLI 文档核对）：Checkstyle 无 JSON 渲染器（仅 `xml` / `sarif` / `plain`），故使用 `-f xml` 并以标准库 `xml.etree` 解析；CLI 会在报告后追加 `Checkstyle ends with N errors.`，因此从 stdout 中提取 `<checkstyle>…</checkstyle>` 文档（自闭合根亦可），对前后杂项文本容错
+- [x] 命令构造：`java -jar <checkstyle-all.jar> -c <config> -f xml <files...>`（参数列表、无 shell；java 直连而非 `checkstyle.bat`，复用 PMD 的启动器解析校验，对解析结果拒绝 `.bat` / `.cmd`）
+- [x] picocli 安全：Checkstyle CLI 基于 picocli 且启用 AtFiles，以 `-` 或 `@` 开头的目标会被解析为选项 / 参数文件 → 适配器直接拒绝此类目标（路径内部的 `src/-X.java` 不受影响）
+- [x] 配置边界：`config` 为可信调用方提供——内建 `google_checks.xml` / `sun_checks.xml`（可带前导 `/`，随 jar 分发）或仓库外已存在文件；URL 一律拒绝；文件型 config 每次运行校验不得位于被审仓库内
+- [x] `checkstyle_jar` 校验：已存在文件且 `.jar` 后缀（realpath）；部署约定为 `checkstyle-<version>-all.jar`（普通 jar 无依赖与入口）
+- [x] 状态策略：执行层 UNAVAILABLE / TIMEOUT / ERROR 透传；stdout 截断 → `PARSE_ERROR` + `INVALID_OUTPUT`；可完整解析的 XML → `OK`（记录真实退出码，不设白名单——Checkstyle 以违例数作为退出码）；输出不可用且退出码非零 → `ERROR` + `PROCESS_FAILED`；输出不可用且退出码 0 → `PARSE_ERROR` + `INVALID_OUTPUT`（配置 / 运行错误不会伪装成干净结果）
+- [x] 映射：`tool=CHECKSTYLE`；`rule_id=source`（检查类全限定名）；`message` 原样；`start_line=line`；`end_line=start_line`（Checkstyle 不报结束行，不外推）；severity `error/warning/info` → HIGH / MEDIUM / LOW；category `checks.coding` → BUG，其余核心包（javadoc / whitespace / naming / imports / …）与未知包保守默认 QUALITY；`file_path` 归一为仓库相对正斜杠且必须属于请求目标
+- [x] 复用：`path_guard`、`ToolRunner`、`_resolve_java_launcher`（自 pmd_adapter 导入）、`_OutputError`（自 ruff_adapter 导入）；未修改任何既有适配器
+- [x] 测试 161 项（`test_analyzer_checkstyle_adapter.py`，fake executor + 合成 XML）：命令构造、内建 / 外部 / URL / 仓库内配置、jar 校验、Java 启动器校验、`-` / `@` 目标拒绝、XML 提取与容错（前导 / 尾随文本、自闭合根）、字段 / 类别 / 严重度映射、无效行 / 严重度 / 属性 / 结构、单条非法使整次失败、截断、退出码策略、路径映射（穿越 / 仓库外 / 未请求 / 大小写）、执行状态、安全与结果契约
+- [x] 回归：Ruff / Bandit / Semgrep / PMD / Checkstyle / PathGuard 859 passed / 2 skipped；Python 全量 2170 passed / 2 skipped（基线 2009 + 新增 161）；`git diff --check` 通过
+- [x] 真实 Checkstyle 联调未执行（本机无发行包）；未实现调度器 / ReviewService / Agent / Prompt 接线；未改依赖
+
+**Phase 7.7.1 设计决策**
+
+- Checkstyle 无 JSON 输出：不套用 `parse_json_output`，在适配器内实现窄范围 XML 提取 + 标准库解析，统一 Result Schema 不变
+- 退出码不作为成功门槛：完整 XML 报告是"审计完成"的可信证据；无报告时按退出码区分工具失败（PROCESS_FAILED）与输出异常（INVALID_OUTPUT）
+- picocli / AtFiles 注入面（`-`、`@` 前缀目标）在适配器层关闭，不依赖工具解析行为
+- 真实联调前置条件：提供 `checkstyle-<version>-all.jar`；实测确认 CLI 输出尾部文本与退出码与本文档假设一致（7.7.2）
+
+### Phase 7.7.2：Checkstyle 14.3.0 真实联调（已完成；收尾审查同步）
+
+- [x] JAR：`D:\tools\checkstyle\checkstyle-14.3.0-all.jar`（14,731,429 bytes；8529 条目；Main-Class `com.puppycrawl.tools.checkstyle.Main`；`-V` → Checkstyle 14.3.0；内建 `google_checks.xml` / `sun_checks.xml` 均在包内）；全部经 `CheckstyleAdapter` + 真实 `SubprocessExecutor`（带请求录制），夹具仅在 `%TEMP%\opencode\checkstyle-it-7.7.2`
+- [x] Java 启动器：适配器实际解析为 `...\javapath_target_3189134406\java.exe`（非 `.bat` / `.cmd`）
+- [x] A 干净文件（外部最小配置，仅 UnusedImports）：exit_code=0，status=OK，findings=0；录制命令 / cwd / 仓库相对目标与设计一致
+- [x] B 违规文件（未使用 import）：exit_code=1（非零 ≠ 失败）；finding `rule_id=...checks.imports.UnusedImportsCheck`、severity=HIGH、category=QUALITY、file_path=Violation.java、行 1-1、message UTF-8 正确解码
+- [x] C 无效配置：缺失外部文件 → 构造 `ValueError`；引用不存在模块的配置 → exit_code=4294967294（异常退出 -2）→ `ERROR` + `PROCESS_FAILED`，findings=0
+- [x] D 含空格 JAR 路径：复制到 `...\checkstyle home\` 后扫描正常（exit_code=1，findings=1）
+- [x] E 特殊文件名：`A&b.java` / `Sp ace.java` / `Bang!.java` / `Caret^.java` / `(Paren).java` / `Percent%.java` 全部被扫描（exit_code=6，findings=6，file_path 逐字一致）
+- [x] 内建配置探测：`google_checks.xml`、`/google_checks.xml`、`sun_checks.xml`、`/sun_checks.xml` 四种形式全部可用
+- [x] 实测修正设计假设：stdout 为纯 XML；`Checkstyle ends with N errors.` 实际在 **stderr**（本地化输出，不参与 findings）；退出码只统计 **error 级违例**（google 默认 warning → 2 findings / exit 0；sun 默认 error → 1 finding / exit 1），异常退出 -2；报告输出绝对路径，适配器正确折叠为仓库相对路径 —— "不设退出码白名单、XML 决定成功"的设计被验证正确
+- [x] 收尾审查修正：`checkstyle_adapter.py` docstring 中 summary 输出位置与退出码语义已按实测改写（纯文档、零行为变更）
+- [x] 收尾回归（本轮实际运行）：Checkstyle 161 passed；Python 全量 2170 passed / 2 skipped；`git diff --check` 通过；未跟踪文件与既有修改全部保留
+- [x] 已知边界：Ruff / Bandit / Semgrep 未做真实工具联调（环境未安装）；§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认；未引入 JVM locale 参数（英文消息属产品决策）
 
 ## Phase 7 状态
 
-**⬜ 未开始**
+**✅ 已完成（正式验收通过，2026-10-10）**
 
 ## 当前任务
 
-暂无。
+Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0（7.6.2）与 Checkstyle 14.3.0（7.7.2）真实联调通过；Ruff / Bandit / Semgrep 为单元级实现与回归，真实工具联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留，未改写）。下一步：Phase 8（LangGraph Multi-Agent，待启动；本阶段未开始）。
 
 ## 阻塞问题
 
@@ -1441,6 +1663,337 @@ Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 ---
 
 ## 开发记录
+
+### 2026-10-10
+
+Phase 7.1（统一静态分析数据结构）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/schemas/static_analysis.py`：`StaticAnalysisTool` / `StaticAnalysisStatus` / `StaticAnalysisErrorCode` / `StaticAnalysisFinding` / `StaticAnalysisResult`
+- [x] `category` / `severity` 复用 `app.schemas.review` 枚举；Finding 不含 confidence
+- [x] 约束：非空且非空白的 `rule_id` / `message`；`start_line` ≥ 1；`end_line` ≥ `start_line`；仓库相对路径校验（绝对 / 盘符 / UNC / `..` 穿越 / 首尾空白全部拒绝）
+- [x] Result 状态契约：OK ↔ 无 error_code（允许空 findings）；非 OK → 必须 error_code 且 findings 为空；非零退出码与失败状态解耦；错误码为有限安全枚举
+- [x] 新增 `agent/tests/test_static_analysis_schemas.py` 126 项（合成数据，无网络 / 无外部工具）
+- [x] Python 全量 1178/1178（基线 1052 + 126）；`git diff --check` 通过
+- [x] 分支：`feature/phase7-static-analysis`（从 main 工作区创建，保留 `docs/DEVELOPMENT_STATUS.md` 原有未提交修改）
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1 已完成，待验收）
+```
+
+下一步：
+
+```text
+Phase 7.2：工具执行框架（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (2)
+
+Phase 7.2（工具执行框架）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/analyzers/`：`execution.py`（`ExecutionStatus` / `CommandExecutionRequest` / `CommandExecutionResult` / `Executor` 协议 / `SubprocessExecutor`）、`json_output.py`（`JsonStatus` / `JsonParseResult` / `parse_json_output`）、`tool_runner.py`（`ToolRunner`）
+- [x] 命令安全：仅参数列表、`shell=False`、拒绝字符串命令与 NUL 参数；可执行文件与 cwd 在启动前校验；不拼接任何 PR 内容
+- [x] 失败语义：缺失工具 `UNAVAILABLE/TOOL_NOT_FOUND`；cwd 无效或启动失败 `ERROR/SPAWN_FAILED`；超时（杀进程 / POSIX 进程组）`TIMEOUT/TIMEOUT`；意外异常 `ERROR/UNKNOWN`；非零退出码保持 `COMPLETED`
+- [x] 输出限制：每流默认 1 MiB、上限 16 MiB、超时上限 600s；daemon 线程并行排空、超额丢弃、显式截断标记；内存有界
+- [x] JSON 边界：区分 VALID / EMPTY / INVALID，文本绝不自动成为 JSON；错误仅暴露安全枚举，不泄漏输出 / 异常文本
+- [x] 新增测试 133 项（3 文件）；Python 全量 1311/1311（基线 1178 + 133）；`git diff --check` 通过
+- [x] 分支 `feature/phase7-static-analysis`；保留 `docs/DEVELOPMENT_STATUS.md` 既有未提交修改；未安装工具、未改依赖 / 构建 / 既有 Schema 语义
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1、7.2 已完成，7.2 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.3：具体工具适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (3)
+
+Phase 7.3（Ruff 适配器）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/analyzers/ruff_adapter.py`：命令 `ruff check --output-format json --isolated --no-cache <files...>`（参数列表，经 `ToolRunner` 执行）
+- [x] 状态与解析策略：UNAVAILABLE / TIMEOUT / ERROR 透传；`COMPLETED` 且退出码 0/1 才解析 JSON（非零 ≠ 失败）；其他退出码 `PROCESS_FAILED`；截断 / 空 / 非法 JSON / 结构不符 → `PARSE_ERROR`，不输出部分 findings
+- [x] 诊断映射：rule_id / message / 1-based 行号；file_path 归一为仓库相对正斜杠且必须在请求目标内；类别（前缀表 + `F811`/`F821`/`F822`/`F823` 覆盖）与严重度（SECURITY HIGH / BUG MEDIUM / PERFORMANCE LOW / QUALITY INFO）复用既有枚举
+- [x] 路径与输入安全：仅显式目标、仓库内校验；拒绝绝对 / 盘符 / 穿越 / 非 `.py(.pyi)` / 不存在 / 字符串 targets；不扫描仓库、不拼接 PR 内容、不执行 PR 脚本
+- [x] 错误只暴露 `StaticAnalysisErrorCode`；日志不含 stdout / stderr / 诊断消息 / 源码
+- [x] 新增测试 126 项（fake executor + 合成 JSON，不依赖真实 Ruff）；Python 全量 1437/1437（基线 1311 + 126）；`git diff --check` 通过
+- [x] 未安装 Ruff、未改依赖 / 构建 / 7.1 Schema / 7.2 框架；保留 `docs/DEVELOPMENT_STATUS.md` 既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1、7.2、7.3 已完成，7.3 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.4：Bandit 适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (4)
+
+Phase 7.4（Bandit 适配器）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/analyzers/bandit_adapter.py`：命令 `bandit -f json <files...>`（参数列表，经 `ToolRunner` 执行；无 `-r` / `--exit-zero`）
+- [x] 状态与解析策略：UNAVAILABLE / TIMEOUT / ERROR 透传；退出码 0/1 才解析 JSON（非零 ≠ 失败）；其他退出码 `PROCESS_FAILED`；截断 / 空 / 非法 JSON / 结构不符 → `PARSE_ERROR`；`errors` 非空 → `PROCESS_FAILED`；不输出部分 findings
+- [x] 诊断映射：test_id / issue_text / line_number / line_range（end = max，缺省为 start）；file_path 仓库相对正斜杠且在请求目标内；category 恒为 SECURITY；issue_severity 1:1 映射；issue_confidence 仅校验不入 Schema
+- [x] 路径与输入安全复用 Ruff 适配器守卫；不扫描仓库、不读仓库配置、不拼接 PR 内容；错误只暴露 `StaticAnalysisErrorCode`
+- [x] 新增测试 133 项（fake executor + 合成 JSON，不依赖真实 Bandit）；Python 全量 1570/1570（基线 1437 + 133）；`git diff --check` 通过
+- [x] 未安装 Bandit、未改依赖 / 构建 / 7.1 Schema / 7.2 框架 / RuffAdapter；保留 `docs/DEVELOPMENT_STATUS.md` 既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1、7.2、7.3、7.4 已完成，7.4 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.5：Semgrep 适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (5)
+
+Phase 7.5（Semgrep 适配器）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/analyzers/semgrep_adapter.py`：命令 `semgrep scan --json --metrics=off --disable-version-check --no-git-ignore --config=<trusted> <files...>`（参数列表，经 `ToolRunner` 执行）
+- [x] 可信配置：`config_path` 必填、必须存在且为文件、不得位于被审仓库内；不使用 `--config auto` / 注册表 / URL / 仓库配置；`--metrics=off` 与 `--disable-version-check` 避免隐式联网
+- [x] 状态与解析：退出码 0/1 才解析 JSON（2/3/5/7 等 → `PROCESS_FAILED`）；截断 / 空 / 非法 JSON / 结构不符 → `PARSE_ERROR`；`errors` 非空或 `paths.scanned` 未覆盖全部目标 → `PROCESS_FAILED`；不输出部分 findings
+- [x] 诊断映射：check_id / extra.message / start.line / end.line（缺省为 start）；file_path 仓库相对正斜杠且属于请求目标；severity ERROR/WARNING/INFO → HIGH/MEDIUM/LOW；category 优先 metadata 后 check_id 段回退，默认 QUALITY
+- [x] 自带路径守卫（不新增跨模块私有依赖）；多语言目标（无后缀限制）；错误只暴露 `StaticAnalysisErrorCode`；日志不含输出 / 源码
+- [x] 新增测试 159 项（fake executor + 合成 JSON，不依赖真实 Semgrep）；Python 全量 1729/1729（基线 1570 + 159）；`git diff --check` 通过
+- [x] 未安装 Semgrep、未改依赖 / 构建 / 7.1 Schema / 7.2 框架 / RuffAdapter / BanditAdapter；保留 `docs/DEVELOPMENT_STATUS.md` 既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.5 已完成，7.5 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.5：Semgrep 适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (6)
+
+Phase 7.5.1（适配器公共路径校验重构）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/analyzers/path_guard.py`：`validate_repo_dir` / `validate_targets`（后缀策略可选）/ `normalize_output_path` / `map_output_path`（`fold_case` 可选）/ `is_within`
+- [x] Ruff / Bandit / Semgrep 三个适配器统一调用公共模块；Bandit 不再导入 RuffAdapter 私有路径函数
+- [x] 行为保持：后缀策略、绝对 / 盘符 / UNC / 穿越 / 空路径 / 仓库外拒绝、正斜杠归一、重复去重、Windows 大小写策略全部不变；符号链接 / junction 逃逸基于 realpath + commonpath 拒绝（非字符串前缀）
+- [x] 新增测试 76 项（`test_analyzer_path_guard.py`；目录级链接逃逸在本机经 junction 实际执行，文件级符号链接无权限 skip 2 项）
+- [x] 三适配器既有测试 418/418；Python 全量 1805 passed / 2 skipped；`git diff --check` 通过
+- [x] 未改公共 API / 状态与规则映射 / Schema / ToolRunner / 依赖；保留 `docs/DEVELOPMENT_STATUS.md` 既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.5.1 已完成，7.5.1 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.6：PMD 适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (7)
+
+Phase 7.6（PMD 适配器）完成，待验收。
+
+已完成：
+
+- [x] 新增 `agent/app/analyzers/pmd_adapter.py`：命令 `pmd check --no-cache --no-progress --format=json --rulesets=<ref>... --dir=<file>...`（参数列表，经 `ToolRunner` 执行；选项值全部 `=` 挂接）
+- [x] 规则集可信边界：构造函数必填；classpath 引用（`category/`、`rulesets/`）或仓库外已存在文件；拒绝 URL；不联网、不下载
+- [x] 状态与退出码：0（无问题）/ 4（发现问题）才解析 JSON；1 / 2 / 5 → `PROCESS_FAILED`；`processingErrors` / `configurationErrors` 非空 → `PROCESS_FAILED`；截断 / 空 / 非法 JSON / 结构不符 → `PARSE_ERROR`；不输出部分 findings
+- [x] 字段映射：rule / description / beginline / endline（缺省 = beginline）；priority 1-5 → HIGH / MEDIUM / MEDIUM / LOW / INFO；ruleset → 类别（未知默认 QUALITY）；file_path 仓库相对且在请求目标内
+- [x] 目标仅限 `.java`；错误只暴露 `StaticAnalysisErrorCode`；日志不含输出 / 源码
+- [x] 新增测试 169 项（fake executor + 合成 JSON，不依赖真实 PMD）；Ruff / Bandit / Semgrep / PathGuard 回归 494 passed；Python 全量 1974 passed / 2 skipped；`git diff --check` 通过
+- [x] 未安装 PMD、未改依赖 / 构建 / Schema / 框架 / 既有适配器；保留 `docs/DEVELOPMENT_STATUS.md` 既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.6 已完成，7.6 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.7：Checkstyle 适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (8)
+
+Phase 7.6.1（PMD 启动方式安全补丁）完成，待验收。
+
+已完成：
+
+- [x] 基于本地 PMD 7.28.0 发行包只读核对：入口类 `net.sourceforge.pmd.cli.PmdCli`（`pmd.bat` 实读 + `jar tf` 确认）、classpath `conf;lib/*`、直连 `--version` / `check --help` 实测通过
+- [x] `pmd_adapter.py` 改为 `java -cp <pmd_home>/conf<pathsep><pmd_home>/lib/* net.sourceforge.pmd.cli.PmdCli check ...`（参数列表、无 shell、`os.pathsep`）
+- [x] 新增 pmd_home（目录 / conf / lib / 至少 1 jar）与 Java 启动器解析校验（拒绝解析后的 `.bat` / `.cmd`，防 PATH 同名批处理绕过）
+- [x] 行为保持：退出码、JSON 解析、错误映射、超时、输出限流、`path_guard`、finding 映射不变
+- [x] 测试净增 35 项（共 204）：命令构造、空格 pmd_home、启动器校验、敌意文件名逐字传递、真实 `SubprocessExecutor` 不经 shell
+- [x] 回归：适配器 698 passed / 2 skipped；Python 全量 2009 passed / 2 skipped；`git diff --check` 通过
+- [x] 真实 PMD 文件扫描联调未执行；未改其他文件 / 依赖 / Schema；保留既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.6.1 已完成，7.6.1 待验收）
+```
+
+下一步：
+
+```text
+真实 PMD 7.28.0 文件扫描联调（待确认）→ Phase 7.7 Checkstyle
+```
+
+---
+
+### 2026-10-10 (9)
+
+Phase 7.6.2（PMD 7.28.0 真实联调）完成，待验收。
+
+已完成：
+
+- [x] 真实联调（全部经 `PMDAdapter` + 真实 `SubprocessExecutor`；夹具仅在 `%TEMP%\opencode\pmd-it-7.6.2`，项目零改动）：
+  - A 干净文件 exit_code=0 / findings=0 / files=[]
+  - B 未使用 import exit_code=4 / findings=1（UnnecessaryImport，line 3，LOW / QUALITY）
+  - C1 缺失外部规则集文件 → 构造即 `ValueError`；C2 内建不存在引用与 C3 无效外部 ruleset → PMD exit_code=1 → `ERROR` + `PROCESS_FAILED`，findings=0
+  - D 含空格 PMD_HOME（`conf` + `lib` 复制到 `...\pmd home\`）真实扫描通过（干净 0 / 违规 1 finding）
+  - E 六个特殊文件名（`&`、空格、`!`、`^`、括号、`%`）全部被扫描，findings=6，`file_path` 逐字一致
+- [x] 实测退出码：0 = 无违规 / 4 = 有违规 / 1 = 配置异常，与适配器映射一致
+- [x] 回归：PMD 204 passed；agent 全量 2009 passed / 2 skipped；`git diff --check` exit 0
+- [x] 无代码改动、无 Git 操作；既有工作区（`M docs/DEVELOPMENT_STATUS.md` + 未跟踪文件）未被覆盖或清理
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.6.2 已完成，7.6.2 待验收）
+```
+
+下一步：
+
+```text
+Phase 7.7：Checkstyle 适配器（待验收后启动）
+```
+
+---
+
+### 2026-10-10 (10)
+
+Phase 7.7.1（Checkstyle 适配器）完成，待验收。
+
+已完成：
+
+- [x] 依据官方 CLI 文档（14.3.0）确认：Checkstyle 无 JSON 输出（xml / sarif / plain），选用 `-f xml` + 标准库 XML 解析；报告后附 `Checkstyle ends with N errors.`，做文档提取容错
+- [x] 新增 `agent/app/analyzers/checkstyle_adapter.py`：`java -jar <all.jar> -c <config> -f xml <files...>`（无 shell、java 直连、拒绝 `.bat` / `.cmd` 启动器）
+- [x] 配置 / jar 校验；picocli 的 `-` / `@` 前缀目标拒绝；复用 `path_guard` / `ToolRunner` / PMD 启动器解析 / Ruff `_OutputError`，未改既有适配器
+- [x] 映射：`source`→`rule_id`、`line`→`start=end`、`error/warning/info`→HIGH/MEDIUM/LOW、`checks.coding`→BUG 其余 QUALITY；完整 XML→OK（记录退出码）、无报告 + 非零退出→PROCESS_FAILED、无报告 + 零退出→PARSE_ERROR
+- [x] 新增测试 161 项；适配器回归 859 passed / 2 skipped；Python 全量 2170 passed / 2 skipped；`git diff --check` 通过
+- [x] 真实 Checkstyle 联调未执行（本机无发行包）；无其他代码 / 依赖变更；保留既有未提交修改
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.7.1 已完成，7.7.1 待验收）
+```
+
+下一步：
+
+```text
+真实 Checkstyle 联调（需发行包）→ Phase 7 收尾评估
+```
+
+---
+
+### 2026-10-10 (11)
+
+Phase 7.7.2（Checkstyle 14.3.0 真实联调）记录补入 + Phase 7 收尾审查完成。
+
+已完成：
+
+- [x] 7.7.2 真实联调：A 干净（exit 0 / 0 findings）、B 违规（exit 1 / `UnusedImportsCheck` 字段映射正确）、C 无效配置（构造 `ValueError` / 运行期 exit 0xFFFFFFFE → `PROCESS_FAILED`）、D 含空格 JAR、E 六个特殊文件名逐字映射；内建 google / sun 四种引用形式全部可用
+- [x] 实测修正：stdout 为纯 XML、`Checkstyle ends with N errors.` 在 stderr（本地化、不参与 findings）；退出码只计 error 级违例（warning 不计），异常退出 -2；报告输出绝对路径由适配器正确折叠
+- [x] 修正 `checkstyle_adapter.py` docstring（summary 位置 + 退出码实测语义；纯文档、零行为变更，161 项适配器测试回归通过）
+- [x] 本轮回归（实际运行）：Checkstyle 161 passed；Python 全量 2170 passed / 2 skipped；`git diff --check` 通过
+- [x] 未跟踪文件与既有未提交修改全部保留；无 Git 变更操作
+- [x] 已知边界：Ruff / Bandit / Semgrep 未做真实工具联调（环境未安装）；§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认
+
+当前状态：
+
+```text
+Phase 7：Static Analysis 🟡 进行中（7.1~7.7.2 已完成；真实联调通过，待最终验收）
+```
+
+下一步：
+
+```text
+Phase 7 最终验收 → Phase 8（验收通过后）
+```
+
+---
+
+### 2026-10-10 (12)
+
+Phase 7（Static Analysis）正式验收通过（用户决定）。
+
+已完成：
+
+- [x] 状态同步：Phase 7 标记为正式验收通过；仅做状态记录，未开发新功能、未改分析器行为、未进入 Phase 8
+- [x] 验收数据记录（保留真实数据与未验证项）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成
+- [x] §10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认记录保留，未擅自修改其含义
+- [x] 未跟踪文件与既有未提交修改全部保留；无 Git 变更操作
+
+当前状态：
+
+```text
+Phase 7：Static Analysis ✅ 已完成（正式验收通过）
+```
+
+下一步：
+
+```text
+Phase 8：LangGraph Multi-Agent（待启动）
+```
+
+---
 
 ### 2026-09-25
 
@@ -2214,6 +2767,26 @@ Phase 6.7.6（真实 PR E2E 联调）完成并通过验收 —— **Phase 6 正�
 
 ---
 
+### 2026-10-08 (7)
+
+Phase 6 稳定版本提交、推送并合并至 main：
+
+- [x] commit `16ac526`：`feat: complete phase 6 code context integration`（34 files, +4810/−70，含 6.7.1~6.7.6 全部改动与文档登记）
+- [x] push 分支 `feature/phase6-code-context` → PR #4 → 已合并（merge commit `35ba7a67`，main `b9adf84 → 35ba7a6`）
+- [x] 已合并分支清理：本地 + 远程 `feature/phase6-code-context` 均已删除（按 GitHub Flow §30.1）
+- [x] PR #4 触发 CodeSentinel 自身审查（task 8）：48 文件、withContent=45、Java 构建 30.09s > Python `PR_CONTEXT_TIMEOUT` 30s → `ReadTimeout` → DEGRADED（findings=0，无 retry）——暴露多文件 PR 超时观察项，已记入已知问题
+- [x] 保留：测试 PR #3 / 分支 `test/phase6-e2e`（未合并）；MySQL task 3~8 为联调记录
+
+当前状态：
+
+```text
+Phase 6：Code Context ✅ 完成并已合并 main（PR #4，merge 35ba7a67）
+```
+
+下一步只能是 Phase 7（Static Analysis）。
+
+---
+
 ### 2026-09-26 (2)
 
 Phase 2 安全配置：PEM 文件路径方式 + GitHub App 凭证管理。
@@ -2375,7 +2948,7 @@ Integration Test
 
 # 23. 当前唯一下一步
 
-Phase 6（Code Context）已完成并通过真实 PR E2E 验收（6.1 ~ 6.7.6；PR #3 全链路 + 受控 degraded 演练 + 回归 1052/202）。
+Phase 6（Code Context）已完成、提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）。Phase 7.1 至 7.5.1、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）与 7.7.2（Checkstyle 14.3.0 真实联调）已完成：`agent/app/schemas/static_analysis.py` + `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard / ruff_adapter / bandit_adapter / semgrep_adapter / pmd_adapter / checkstyle_adapter）+ 1118 项新增测试，Python 全量 2170 passed / 2 skipped，分支 `feature/phase7-static-analysis`；PMD 与 Checkstyle 真实联调均已通过，Phase 7 已正式验收通过（2026-10-10）。
 
 ```text
 纯 Python：Diff → File Context → Method Context → Class Context → Related Code
@@ -2383,11 +2956,22 @@ Phase 6（Code Context）已完成并通过真实 PR E2E 验收（6.1 ~ 6.7.6；
           → CodeContextBuilder 装配 → ReviewService 接线（取码失败降级 degraded）
           → Prompt 渲染（diff + methods + related + 可用性/截断声明 + 行号硬约束）
 Java：    GET /api/tasks/{taskId}/pr-context（分页 + 内容保护 + 单 Token 复用）
-真实 E2E：PR #3（task 4/5/7 COMPLETED，task 6 DEGRADED；未合并）
-          （6.7.1 ~ 6.7.5 尚未提交）
+真实 E2E：PR #3（task 3~7；测试用，未合并）
+提交合并：PR #4（merge `35ba7a67`）；分支 feature/phase6-code-context 已清理
+Phase 7.1：StaticAnalysisTool / Status / ErrorCode / Finding / Result（纯 Schema + 126 测试）
+Phase 7.2：ExecutionStatus / CommandExecutionRequest / Result / Executor / SubprocessExecutor / JsonParseResult / parse_json_output / ToolRunner（+133 测试）
+Phase 7.3：RuffAdapter（命令 / 输入与路径校验 / 状态与退出码映射 / JSON 严格解析 / 类别与严重度映射，+126 测试）
+Phase 7.4：BanditAdapter（命令 / 状态与解析策略 / 诊断与严重度映射 / 路径守卫复用，+133 测试）
+Phase 7.5：SemgrepAdapter（可信配置 / 命令 / 状态与退出码 / 解析与扫描完整性 / 严重度与类别映射，+159 测试）
+Phase 7.5.1：path_guard（validate_repo_dir / validate_targets / normalize_output_path / map_output_path / is_within；三适配器统一复用，+76 测试）
+Phase 7.6：PMDAdapter（规则集可信边界 / 命令 / 状态与退出码 / 解析与扫描完整性 / 优先级与类别映射，+169 测试）
+Phase 7.6.1：PMD 启动方式安全补丁（java 直连替代 pmd.bat；pmd_home / Java 启动器解析校验；敌意文件名安全回归，+35 测试）
+Phase 7.6.2：PMD 7.28.0 真实联调（java 直连 / 含空格 pmd_home / 退出码 0/4/1 / 特殊文件名逐字映射；PMD 204、全量 2009；无代码改动）
+Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / picocli 目标策略 / 退出码与字段映射，+161 测试；真实联调待发行包）
+Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
 ```
 
-下一步只能是 **Phase 7：Static Analysis**（Java: PMD / Checkstyle / Semgrep；Python: Ruff / Bandit / Semgrep），并遵循新 Phase 流程：先阅读 / 检查 / 提计划，不直接改代码。
+下一步只能是 **Phase 8：LangGraph Multi-Agent**（待启动；按新阶段流程先阅读 / 检查 / 提计划）。不提前实现调度器 / Agent / Prompt 接线。
 
 已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 
