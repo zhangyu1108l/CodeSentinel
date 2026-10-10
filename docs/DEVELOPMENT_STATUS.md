@@ -23,7 +23,7 @@
 
 ## 当前任务
 
-Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。下一步：Phase 8（LangGraph Multi-Agent，待启动）。
+Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。已提交 `584a90e`、PR #5 已创建（待审查合并；未合并 main）。下一步：Phase 8（待启动）。
 
 ## 当前总体进度
 
@@ -1286,7 +1286,7 @@ LLM Agent
 
 ## 当前任务
 
-Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0（7.6.2）与 Checkstyle 14.3.0（7.7.2）真实联调通过；Ruff / Bandit / Semgrep 为单元级实现与回归，真实工具联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留，未改写）。下一步：Phase 8（LangGraph Multi-Agent，待启动；本阶段未开始）。
+Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0（7.6.2）与 Checkstyle 14.3.0（7.7.2）真实联调通过；Ruff / Bandit / Semgrep 为单元级实现与回归，真实工具联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留，未改写）。已提交 `584a90e`、PR #5 已创建（待审查合并，未合并 main）。下一步：Phase 8（LangGraph Multi-Agent，待启动；本阶段未开始）。
 
 ## 阻塞问题
 
@@ -1991,6 +1991,32 @@ Phase 7：Static Analysis ✅ 已完成（正式验收通过）
 
 ```text
 Phase 8：LangGraph Multi-Agent（待启动）
+```
+
+---
+
+### 2026-10-10 (13)
+
+Phase 7 成果提交并创建 PR（待审查合并，未合并 main）。
+
+已完成：
+
+- [x] commit `584a90e`：`feat(static-analysis): finalize phase 7 analyzers`（22 个文件：Schema 1 + 执行框架 / 适配器 10 + 测试 10 + DEVELOPMENT_STATUS.md；+11187 / −36）
+- [x] 推送分支 `feature/phase7-static-analysis`（新建远程分支，未强制推送）
+- [x] PR #5 已创建：https://github.com/zhangyu1108l/CodeSentinel/pull/5（base `main`，等待审查合并）
+- [x] 提交前验证（实际运行）：Python 全量 2170 passed / 2 skipped / 1 warning；`git diff --cached --check` / `git diff --check` 通过；暂存清单经复核无无关文件 / 密钥 / 临时夹具
+- [x] Phase 7 未完成项保留：Ruff / Bandit / Semgrep 真实工具联调；§10 两项清单语义确认
+
+当前状态：
+
+```text
+Phase 7：Static Analysis ✅ 已完成（正式验收通过；PR #5 待审查合并）
+```
+
+下一步：
+
+```text
+PR #5 审查与合并 → Phase 8（待启动）
 ```
 
 ---
@@ -2948,7 +2974,7 @@ Integration Test
 
 # 23. 当前唯一下一步
 
-Phase 6（Code Context）已完成、提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）。Phase 7.1 至 7.5.1、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）与 7.7.2（Checkstyle 14.3.0 真实联调）已完成：`agent/app/schemas/static_analysis.py` + `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard / ruff_adapter / bandit_adapter / semgrep_adapter / pmd_adapter / checkstyle_adapter）+ 1118 项新增测试，Python 全量 2170 passed / 2 skipped，分支 `feature/phase7-static-analysis`；PMD 与 Checkstyle 真实联调均已通过，Phase 7 已正式验收通过（2026-10-10）。
+Phase 6（Code Context）已完成、提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）。Phase 7.1 至 7.5.1、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）与 7.7.2（Checkstyle 14.3.0 真实联调）已完成：`agent/app/schemas/static_analysis.py` + `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard / ruff_adapter / bandit_adapter / semgrep_adapter / pmd_adapter / checkstyle_adapter）+ 1118 项新增测试，Python 全量 2170 passed / 2 skipped，分支 `feature/phase7-static-analysis`；PMD 与 Checkstyle 真实联调均已通过，Phase 7 已正式验收通过（2026-10-10）；已提交 `584a90e` 并创建 PR #5（待审查合并，未合并 main）。
 
 ```text
 纯 Python：Diff → File Context → Method Context → Class Context → Related Code
