@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 7：Static Analysis — ✅ 已完成（正式验收通过；7.1~7.7.2）**
+**Phase 8：LangGraph Multi-Agent — ⬜ 未开始（基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建，待启动）**
 
 ## 当前任务
 
-Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。已提交 `584a90e`、PR #5 已创建（待审查合并；未合并 main）。下一步：Phase 8（待启动）。
+Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建；Phase 8 尚未开始实现，按新阶段流程先阅读 / 检查 / 提计划。
 
 ## 当前总体进度
 
@@ -34,8 +34,8 @@ Phase 3  GitHub API               ✅ 已完成
 Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
-Phase 7  Static Analysis          ✅ 已完成（PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
-Phase 8  LangGraph Multi-Agent    ⬜ 未开始
+Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
+Phase 8  LangGraph Multi-Agent    ⬜ 未开始（基线分支已创建，待启动）
 Phase 9  GitHub 评论              ⬜ 未开始
 Phase 10 MySQL 历史记录           ⬜ 未开始
 ```
@@ -1286,7 +1286,7 @@ LLM Agent
 
 ## 当前任务
 
-Phase 7 已正式验收通过：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0（7.6.2）与 Checkstyle 14.3.0（7.7.2）真实联调通过；Ruff / Bandit / Semgrep 为单元级实现与回归，真实工具联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留，未改写）。已提交 `584a90e`、PR #5 已创建（待审查合并，未合并 main）。下一步：Phase 8（LangGraph Multi-Agent，待启动；本阶段未开始）。
+Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）。全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0（7.6.2）与 Checkstyle 14.3.0（7.7.2）真实联调通过；Ruff / Bandit / Semgrep 为单元级实现与回归，真实工具联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留，未改写）。下一步：Phase 8（LangGraph Multi-Agent，待启动；本阶段尚未开始实现）。
 
 ## 阻塞问题
 
@@ -1357,7 +1357,7 @@ Bug Agent   Security Agent  Performance   Quality Agent
 
 ## 当前任务
 
-暂无。
+Phase 8 尚未开始实现；基线分支 `feature/phase8-langgraph-multi-agent` 已从 `main` 合并提交 `d305b47` 创建（2026-10-11）。按新阶段流程（先阅读 / 检查 / 提计划）确认后再进入实现。
 
 ## 阻塞问题
 
@@ -1663,6 +1663,95 @@ Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 ---
 
 ## 开发记录
+
+### 2026-10-11
+
+PR #5 审查、测试并合并；Phase 8 基线分支建立。
+
+已完成：
+
+- [x] PR #5 全量审查：22 个文件 diff（执行框架 / 路径守卫 / Ruff / Bandit / Semgrep / PMD / Checkstyle 适配器 + 10 个测试文件 + 文档）逐文件复核；安全扫描无密钥 / 令牌模式；`git diff --check` 通过
+- [x] 合并前测试（实际运行）：Python 全量 2170 passed / 2 skipped / 1 warning（15.77s）；Java 全量 202 tests / 0 failures / BUILD SUCCESS
+- [x] 审查无阻塞问题：无代码修改、无新提交；远程分支已与本地一致，无需推送
+- [x] PR #5 已合并至 `main`：merge commit `d305b47`（2026-10-11T04:59:33Z，merge commit 方式；未删除分支）
+- [x] `git fetch origin` 验证：`origin/main` 已包含 `584a90e` / `1a6d3ee`，顶端为 `d305b47`
+- [x] Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已从 `origin/main`（`d305b47`）创建（`--no-track`；未推送远程）
+
+当前状态：
+
+```text
+Phase 7：Static Analysis ✅ 已完成并合并 main（PR #5 / d305b47）
+Phase 8：LangGraph Multi-Agent ⬜ 未开始（基线分支已创建，待启动）
+```
+
+下一步：
+
+```text
+Phase 8 按新阶段流程：先阅读 / 检查 / 提计划，确认后进入实现
+```
+
+### 2026-10-11 (2)
+
+Review 超时预算治理（独立横向工程改进，非 Phase 8 Multi-Agent；未提交）。
+
+已完成（本任务执行时本机实际运行，非独立复验；未提交、未推送、未切换分支）：
+
+- [x] 新增 `agent/app/services/request_budget.py`：`RequestBudget`（单调截止时间、可注入时钟、`remaining()` / `expired()` / `limit()`）与 `ReviewBudgetExceededError`
+- [x] 新增服务端总预算配置 `REVIEW_TOTAL_BUDGET`，默认 **100 秒**（= PR Context 局部 30s + DeepSeek 局部 60s + 10s 余量；小于 Worker `AI_SERVICE_TIMEOUT` 默认 120s），并同步 `agent/.env.example`
+- [x] `ReviewService` 接入预算：Context 取码受「本地 `PR_CONTEXT_TIMEOUT` ∧ 剩余总预算」双重限制（超时仍按既有语义降级 `DEGRADED`）；LLM 调用仅使用剩余预算（`asyncio.timeout`，超时可取消在途 httpx）；预算在 LLM 前/中耗尽 → 抛 `ReviewBudgetExceededError`（失败路径，不伪装成功）
+- [x] 静态分析调度（独立模块，未接入生产审查链路）：`run()` / `run_on_contents()` 支持可选 `budget_seconds`；预算耗尽后不启动后续工具，新增 `SchedulerOutcome.budget_exhausted_tools`；聚合器透出该字段且 `partial = 失败 ∨ 预算耗尽`
+- [x] 新增/调整超时治理测试 35 项：`test_request_budget.py` 14、`test_review_service_budget.py` 10、`test_analyzer_scheduler.py` +7、`test_analyzer_aggregation.py` +4
+- [x] Python 全量测试（本机实际运行）：**2322 passed / 2 skipped / 1 warning**（基线 2287 + 35）；`git diff --check` 通过
+- [x] 取消与清理验证：LLM / Context 预算超时均可取消在途协程（测试断言捕获 `CancelledError`）；子进程超时终止（既有 execution 测试）与临时工作区清理（既有测试 + 预算耗尽路径新测试）均通过
+- [x] 边界：Java 零 diff、未运行 Java 测试；未修改 API / Finding Schema / ReviewService 业务语义；未接入静态分析生产链路；未新增依赖
+
+已知限制（尚未解决）：
+
+- [已解决，见 2026-10-11 (3)] 原记录：`REVIEW_TOTAL_BUDGET` 未硬性限制为小于 `AI_SERVICE_TIMEOUT`（仅默认值与 `.env.example` 说明保证；配置不当可致客户端先放弃）—— 现已由启动期配置校验强制（两值必须为正有限数，且 `REVIEW_TOTAL_BUDGET` 严格小于 `AI_SERVICE_TIMEOUT`）
+- Java → GitHub 的 HTTP 超时尚未配置（Python 侧取消不传播到 Java 侧工作）
+- 静态分析批次预算仅在工具启动之间检查；进行中的单工具仍由其自身 ToolRunner 60s 本地超时控制
+- Redis / Java 侧既有超时债务（BLPOP socket 超时日志、Java Redis 未配置超时）尚未处理
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent ⬜ 未开始（本体未实现；本次为独立横向超时预算治理改进，尚未提交）
+```
+
+下一步：
+
+```text
+本改进待评审 / 后续安排（当前未提交）；Phase 8 Multi-Agent 本体仍按新阶段流程待启动
+```
+
+### 2026-10-11 (3)
+
+超时预算治理加固：非有限预算拒绝、启动期配置校验、错误输入隐藏（仍未提交；不改变 Phase 8 状态）。
+
+已完成（测试结果为 2026-10-11 复核运行；未提交、未推送、未切换分支）：
+
+- [x] `RequestBudget`（`request_budget.py`）、`_positive_seconds`（`review_service.py`）与 scheduler `_deadline_for`（`scheduler.py`）统一拒绝 NaN / 正负 Infinity / 非正数（`math.isfinite`），错误信息明确，不静默转默认值
+- [x] Settings 启动期配置校验（`model_validator`）：`REVIEW_TOTAL_BUDGET` 与 `AI_SERVICE_TIMEOUT` 必须均为**正有限数**，且 `REVIEW_TOTAL_BUDGET` **严格小于** `AI_SERVICE_TIMEOUT`；不满足时在配置初始化（`settings = Settings()` / 模块导入）阶段失败，错误信息包含字段关系
+- [x] `SettingsConfigDict(hide_input_in_errors=True)`：启动校验失败的异常字符串不再携带输入值预览（以合成哨兵值断言）
+- [x] 测试调整：`test_settings.py` 19 项（默认 / 关系 / 非有限 / 合法组合 / 错误隐藏）、`test_request_budget.py` 17 项、`test_review_service_budget.py` 19 项（含 `_positive_seconds` 直接覆盖）、`test_analyzer_scheduler.py` 非法预算用例含 NaN / ±Inf
+- [x] 全量测试（2026-10-11 本次执行；范围：agent/ 全部 Python 用例）：**2353 passed / 2 skipped / 1 warning**；历史记录中的 2322、2170 等为各自执行时点的结果，保持不变
+
+已知限制（本次新增，尚未解决）：
+
+- pydantic `ValidationError.errors()` 与默认 `.json()` 仍可能包含原始输入值——`hide_input_in_errors` 只保护异常字符串（启动 traceback 路径）；若引入结构化错误输出 / 上报，需显式使用 `include_input=False`
+- 环境变量 → 模块导入的启动失败路径目前仅人工探针验证，尚无自动化测试
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent ⬜ 未开始（本次为预算治理加固，尚未提交）
+```
+
+下一步：
+
+```text
+加固改动随超时预算治理一并评审 / 提交（当前未提交）；Phase 8 Multi-Agent 本体仍待启动
+```
 
 ### 2026-10-10
 
@@ -2974,7 +3063,7 @@ Integration Test
 
 # 23. 当前唯一下一步
 
-Phase 6（Code Context）已完成、提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）。Phase 7.1 至 7.5.1、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）与 7.7.2（Checkstyle 14.3.0 真实联调）已完成：`agent/app/schemas/static_analysis.py` + `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard / ruff_adapter / bandit_adapter / semgrep_adapter / pmd_adapter / checkstyle_adapter）+ 1118 项新增测试，Python 全量 2170 passed / 2 skipped，分支 `feature/phase7-static-analysis`；PMD 与 Checkstyle 真实联调均已通过，Phase 7 已正式验收通过（2026-10-10）；已提交 `584a90e` 并创建 PR #5（待审查合并，未合并 main）。
+Phase 6（Code Context）已完成、提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）。Phase 7.1 至 7.5.1、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）与 7.7.2（Checkstyle 14.3.0 真实联调）已完成：`agent/app/schemas/static_analysis.py` + `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard / ruff_adapter / bandit_adapter / semgrep_adapter / pmd_adapter / checkstyle_adapter）+ 1118 项新增测试，Python 全量 2170 passed / 2 skipped，分支 `feature/phase7-static-analysis`；PMD 与 Checkstyle 真实联调均已通过，Phase 7 已正式验收通过（2026-10-10）；已提交 `584a90e`；PR #5 已审查、测试并合并至 `main`（merge commit `d305b47`，2026-10-11），`584a90e` / `1a6d3ee` 已进入 `origin/main`；Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建。
 
 ```text
 纯 Python：Diff → File Context → Method Context → Class Context → Related Code
@@ -2997,7 +3086,7 @@ Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / pic
 Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
 ```
 
-下一步只能是 **Phase 8：LangGraph Multi-Agent**（待启动；按新阶段流程先阅读 / 检查 / 提计划）。不提前实现调度器 / Agent / Prompt 接线。
+下一步只能是 **Phase 8：LangGraph Multi-Agent**（尚未开始实现；基线分支 `feature/phase8-langgraph-multi-agent` 已创建；按新阶段流程先阅读 / 检查 / 提计划）。不提前实现调度器 / Agent / Prompt 接线。
 
 已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 

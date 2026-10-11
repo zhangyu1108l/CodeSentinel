@@ -367,64 +367,36 @@ CodeSentinel 项目文档职责保持清晰：
 
 ## 13. 当前项目状态
 
-截至当前：
+截至当前（2026-10-11）：
 
-- Phase 1：已完成
-- Phase 2：已完成
-- Phase 3：未开始
+- Phase 1 ~ Phase 6：已完成并合并 `main`
+- Phase 7：Static Analysis 已正式验收（2026-10-10），并通过 PR #5 合并 `main`（merge commit `d305b47`）
+- Phase 8：LangGraph Multi-Agent，未开始；基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建，等待按新阶段流程启动
 
-Phase 2 已完成：
+Phase 7 已完成（摘要）：
 
-- GitHub App
-- Webhook 接收
-- `X-Hub-Signature-256` HMAC-SHA256 验证
-- `pull_request` 事件解析
-- `opened`
-- `synchronize`
-- `reopened`
-- Smee 本地开发联调
-- 真实 GitHub Webhook 联调成功
-- HTTP 200 验证通过
+- `agent/app/schemas/static_analysis.py`（统一静态分析契约）
+- `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard + Ruff / Bandit / Semgrep / PMD / Checkstyle 适配器）
+- PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实工具联调待完成（已知边界）
+- 全量测试：Python 2170 passed / 2 skipped；Java 202 passed
 
 ---
 
-## 14. Phase 3 开发原则
+## 14. 当前阶段开发原则（Phase 8）
 
-Phase 3 目标：
+Phase 8 目标：
 
-> 实现 GitHub API 集成，让 CodeSentinel 能够获取 Pull Request 的元数据、Commit、Changed Files、Diff 和必要的文件内容。
+> LangGraph Multi-Agent：Planner → Bug / Security / Performance / Quality Agent → Validator → Reporter（见 `PROJECT_DESIGN.md` §21、`DEVELOPMENT_STATUS.md` §11）。
 
-Phase 3 应拆分实施，不一次性完成。
+Phase 8 应拆分实施，不一次性完成（本文件 §5 新 Phase 开始规则、§7 小任务流程）。
 
-推荐顺序：
+原则：
 
-```text
-Phase 3.1
-GitHub App JWT + Installation Token
-        ↓
-Phase 3.2
-GitHub API Client
-        ↓
-Phase 3.3
-Pull Request API
-        ↓
-Phase 3.4
-Changed Files API
-        ↓
-Phase 3.5
-Commit / Diff 获取
-        ↓
-Phase 3.6
-文件内容与统一 PR Context
-```
-
-当前优先从：
-
-> Phase 3.1：GitHub App JWT + Installation Token
-
-开始。
-
-除非用户明确要求，不应在 Phase 3.1 中提前实现完整 PR Review、Review Task、Redis 队列、AI Agent、静态分析或其他后续 Phase 功能。
+- 串行优先：Agent 初始实现使用串行流程保证稳定与可验证，不盲目并行（`AGENTS.md` §38）
+- 统一 Finding Schema、Agent 职责单一（`AGENTS.md` §6、§7）
+- Validator 是最终质量闸门：结合重新读取的代码、Diff 与静态分析证据（`AGENTS.md` §8）
+- 不提前实现后续 Phase：GitHub Comment（Phase 9）、MySQL 历史记录（Phase 10）、RAG / Milvus、Dashboard、VS Code、Auto Fix（`DEVELOPMENT_STATUS.md` §23）
+- 不执行 PR 中的不可信代码（`AGENTS.md` §27）
 
 ---
 
