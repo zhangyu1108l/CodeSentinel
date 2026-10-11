@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 8：LangGraph Multi-Agent — 🟡 进行中（8.1~8.3 已完成并推送；其余子任务待做）**
+**Phase 8：LangGraph Multi-Agent — 🟡 进行中（8.1~8.5 已完成并推送；其余子任务待做）**
 
 ## 当前任务
 
-Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已推送；安全日志硬化（`c0fd25d`）、Phase 8.1 最小工作流（`fb2e800`）、8.2 共享预算上下文（`cbe52cb`）与 8.3 Planner 驱动分析工作流（`54bcd2a`）已完成，PR #6 待审查（详见记录 2026-10-11 (4)/(5)）。
+Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已推送；安全日志硬化（`c0fd25d`）、Phase 8.1 最小工作流（`fb2e800`）、8.2 共享预算上下文（`cbe52cb`）、8.3 Planner 驱动分析工作流（`54bcd2a`）、8.4 有界上下文载荷与 Finding 验证（`b5e9faa`）与 8.5 生产路径图工作流接线（`91ddf7a`）已完成，PR #6 待审查（详见记录 2026-10-11 (4)~(6)）。
 
 ## 当前总体进度
 
@@ -35,7 +35,7 @@ Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
 Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
-Phase 8  LangGraph Multi-Agent    🟡 进行中（8.1~8.3 已完成并推送；其余待做）
+Phase 8  LangGraph Multi-Agent    🟡 进行中（8.1~8.5 已完成并推送；其余待做）
 Phase 9  GitHub 评论              ⬜ 未开始
 Phase 10 MySQL 历史记录           ⬜ 未开始
 ```
@@ -1353,11 +1353,11 @@ Bug Agent   Security Agent  Performance   Quality Agent
 
 ## Phase 8 状态
 
-**🟡 进行中（8.1~8.3 已完成并推送；其余子任务待做）**
+**🟡 进行中（8.1~8.5 已完成并推送；其余子任务待做）**
 
 ## 当前任务
 
-Phase 8.1~8.3 已完成（见记录 2026-10-11 (4)/(5)）：最小单节点图（8.1）、跨节点共享预算上下文与状态/路由接口（8.2）、Planner 驱动分析工作流（8.3：白名单计划 + Bug Agent + 条件路由）。图未接入生产入口；静态分析未接入；其余 Agent / Validator / Reporter 未实现。
+Phase 8.1~8.5 已完成（见记录 2026-10-11 (4)~(6)）：最小图（8.1）、共享预算上下文与状态/路由（8.2）、Planner 驱动分析工作流（8.3）、有界上下文载荷与 Finding 验证及 BUG Agent 真实上下文闭环（8.4）、生产路径经图工作流服务（8.5）。仍未完成：分析工作流尚未替换生产通用审查（待其余 Agent 就绪）、静态分析工具接入与真实联调、多节点 LLM 预算分摊、其余 Agent / Validator / Reporter。
 
 ## 阻塞问题
 
@@ -1812,6 +1812,39 @@ Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.3 已完成并推送；�
 
 ```text
 Phase 8.4 起：Security / Performance / Quality Agent、Validator、Reporter、静态分析与上下文接入（先计划确认后小步实施）
+```
+
+### 2026-10-11 (6)
+
+Phase 8.4（有界上下文载荷与 Finding 验证）与 Phase 8.5（生产路径图工作流接线）完成并推送。
+
+已完成（测试为本次实际运行）：
+
+- [x] Phase 8.4（commit `b5e9faa`，`feat(agent): analyze finding agents on bounded PR context (Phase 8.4)`）：新增 `app/agents/context_payload.py`（`AgentContextPayload` + `build_agent_context`：复用 `render_code_context`；限制文件数 / 单条静态消息长度 / 总字符数；超限时按序从尾部丢弃文件并显式标记 `truncated`；保留 `paths` 与逐文件允许行区间映射；无内容文件的行区间来自 changed_ranges / methods / related；载荷仅记录数量，源码不写日志）
+- [x] BUG Agent 真实上下文闭环（`app/agents/finding_agent.py`）：仅当存在可用 `AgentContextPayload` 时才调用 LLM；无上下文 / 不可用 / 无可报告行 → **不调用 LLM** 且返回空列表（安全降级、不伪造）；提示词包含代码载荷、静态证据与允许路径/行区间硬约束
+- [x] Finding 验证与规范化：category 必须匹配；file_path 必须在载荷内；start/end 必须同时落在同一允许区间；title / rule_id / description / reason / suggestion 非空白；相同（路径 / 行号 / 规则 / 标题忽略大小写）去重保序；空结果合法
+- [x] Phase 8.4 测试 31 项：`test_agent_context_payload.py` 15（限制 / 截断 / 行号映射 / 静态证据 / 日志无源码）与 `test_finding_agent.py` 16（无上下文跳过 LLM、上下文进提示词、越路径 / 越界 / 倒置行号 / 空白证据 / 重复过滤、单次调用、异常传播）
+- [x] Phase 8.5（commit `91ddf7a`，`feat(agent): serve reviews through the graph workflow (Phase 8.5)`）：`/api/reviews` 最小切换点——路由依赖改为 `get_review_workflow`（其依赖仍为 `get_review_service`，测试覆盖点不变），请求经 `ReviewWorkflow` 图执行；每次请求仅 1 次 `ReviewService.review()` 调用并注入同一 `RequestBudget`（测试断言 `await_count == 1` 且 kwargs 含 `RequestBudget`）；请求/响应契约与 DEGRADED / 500 异常语义保持不变
+- [x] Phase 8.5 测试 +3（单次调用与共享预算、DEGRADED 200、workflow 依赖构造）；`test_review_api.py` 既有用例全部通过
+- [x] 全量测试（2026-10-11 本次执行；范围：agent/ 全部 Python 用例）：**2450 passed / 2 skipped / 1 warning**（8.4 阶段为 2447）；`git diff --check` 通过；两次提交均已推送
+
+已知风险 / 未完成：
+
+- **分析工作流（Planner + BUG Agent）尚未替换生产通用审查**：8.5 的生产切换为「图工作流包住现有 `ReviewService`」（保持覆盖面与契约、避免回退与重复 LLM 调用）；待其余 Agent / Validator / Reporter 就绪后再切换分析链路
+- 静态分析工具未接入（载荷结构支持静态证据传入，但 Ruff / Bandit / Semgrep 真实工具联调仍未完成）
+- 多节点 LLM 预算分摊未做；Security / Performance / Quality Agent、Validator、Reporter、finding 合并与行号定位校验未实现
+- 既有残余项不变（§10 两项语义、Java → GitHub 超时等）
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.5 已完成并推送；其余子任务待做）
+```
+
+下一步：
+
+```text
+Phase 8.6 起：其余维度 Agent、Validator、Reporter 与静态分析接入；分析链路切换需待覆盖面对等后评估
 ```
 
 ### 2026-10-10
@@ -3147,7 +3180,7 @@ Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / pic
 Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
 ```
 
-下一步为 **Phase 8：LangGraph Multi-Agent 后续子任务**（8.1~8.3 已完成并推送，见记录 2026-10-11 (4)/(5)；基线分支 `feature/phase8-langgraph-multi-agent` 已推送，PR #6 待审查）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文、Planner 与 Bug Agent 及条件路由；仍待实现：Security / Performance / Quality Agent、Validator、Reporter、静态分析与代码上下文接入、生产入口接线、多节点 LLM 预算分摊。
+下一步为 **Phase 8：LangGraph Multi-Agent 后续子任务**（8.1~8.5 已完成并推送，见记录 2026-10-11 (4)~(6)；基线分支 `feature/phase8-langgraph-multi-agent` 已推送，PR #6 待审查）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文、Planner 与 Bug Agent、有界上下文载荷与 Finding 验证、生产路径图工作流接线；仍待实现：分析工作流替换生产通用审查（需先覆盖面对等）、Security / Performance / Quality Agent、Validator、Reporter、静态分析工具接入与真实联调、多节点 LLM 预算分摊。
 
 已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 
