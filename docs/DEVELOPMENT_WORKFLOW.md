@@ -371,7 +371,7 @@ CodeSentinel 项目文档职责保持清晰：
 
 - Phase 1 ~ Phase 6：已完成并合并 `main`
 - Phase 7：Static Analysis 已正式验收（2026-10-10），并通过 PR #5 合并 `main`（merge commit `d305b47`）
-- Phase 8：LangGraph Multi-Agent，进行中；基线分支 `feature/phase8-langgraph-multi-agent` 已推送（PR #6）；8.1~8.6 已完成（最小图 → 共享预算上下文与状态/路由 → Planner 驱动分析工作流 → 有界上下文载荷与 Finding 验证 → 生产路径图工作流接线 → 静态分析工具接入生产 Review 流程（可配置检测与执行、共享预算、失败显式降级；本机未安装工具，真实联调待环境就绪）；`langgraph==1.2.5`），见 `DEVELOPMENT_STATUS.md` 记录 2026-10-11 (4)~(7)
+- Phase 8：LangGraph Multi-Agent，进行中；基线分支 `feature/phase8-langgraph-multi-agent` 已推送（PR #6）；8.1~8.7 已完成（最小图 → 共享预算上下文与状态/路由 → Planner 驱动分析工作流 → 有界上下文载荷与 Finding 验证 → 生产路径图工作流接线 → 静态分析工具接入生产 Review 流程（本机未安装工具，真实联调待环境就绪）→ 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合去重、Reporter、多节点预算分配；分析链路独立可运行，生产路径按覆盖面对等证明未完成而保持不切换）；`langgraph==1.2.5`），见 `DEVELOPMENT_STATUS.md` 记录 2026-10-11 (4)~(8)
 
 Phase 7 已完成（摘要）：
 
