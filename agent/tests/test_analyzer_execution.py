@@ -458,3 +458,81 @@ class TestSubprocessExecutor:
         assert second.exit_code == 0
         assert first.stdout.strip() == "1"
         assert second.stdout.strip() == "2"
+
+
+class RecordingExecutor:
+    """Local inner executor for the deadline wrapper tests."""
+
+    def __init__(self):
+        self.requests = []
+
+    def execute(self, request):
+        self.requests.append(request)
+        return CommandExecutionResult(
+            status=ExecutionStatus.COMPLETED, exit_code=0, duration_ms=0
+        )
+
+
+class TestDeadlineCappedExecutor:
+    def test_timeout_is_capped_to_remaining_minus_reserve(self):
+        from app.analyzers.execution import (
+            DeadlineCappedExecutor,
+            PROCESS_CLEANUP_RESERVE_SECONDS,
+        )
+
+        inner = RecordingExecutor()
+        wrapper = DeadlineCappedExecutor(
+            inner, remaining_seconds=lambda: 20.0
+        )
+        result = wrapper.execute(
+            CommandExecutionRequest(
+                command=python_command("print(1)"),
+                timeout_seconds=60.0,
+            )
+        )
+        assert result.status is ExecutionStatus.COMPLETED
+        assert inner.requests[0].timeout_seconds == pytest.approx(
+            20.0 - PROCESS_CLEANUP_RESERVE_SECONDS
+        )
+
+    def test_smaller_adapter_timeout_is_not_raised(self):
+        from app.analyzers.execution import DeadlineCappedExecutor
+
+        inner = RecordingExecutor()
+        wrapper = DeadlineCappedExecutor(
+            inner, remaining_seconds=lambda: 100.0
+        )
+        wrapper.execute(
+            CommandExecutionRequest(
+                command=python_command("print(1)"), timeout_seconds=5.0
+            )
+        )
+        assert inner.requests[0].timeout_seconds == 5.0
+
+    def test_reserve_exhausted_never_starts_the_command(self):
+        from app.analyzers.execution import DeadlineCappedExecutor
+
+        inner = RecordingExecutor()
+        wrapper = DeadlineCappedExecutor(
+            inner, remaining_seconds=lambda: 10.0
+        )
+        result = wrapper.execute(
+            CommandExecutionRequest(command=python_command("print(1)"))
+        )
+        assert result.status is ExecutionStatus.TIMEOUT
+        assert result.error_code is StaticAnalysisErrorCode.TIMEOUT
+        assert inner.requests == []
+
+    def test_wrapper_validation(self):
+        from app.analyzers.execution import DeadlineCappedExecutor
+
+        with pytest.raises(ValueError):
+            DeadlineCappedExecutor("not-an-executor", lambda: 1.0)
+        with pytest.raises(ValueError):
+            DeadlineCappedExecutor(RecordingExecutor(), "not-callable")
+        with pytest.raises(ValueError):
+            DeadlineCappedExecutor(
+                RecordingExecutor(),
+                lambda: 1.0,
+                reserve_seconds=-1,
+            )

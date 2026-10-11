@@ -23,7 +23,7 @@
 
 ## 当前任务
 
-Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已推送；安全日志硬化（`c0fd25d`）、Phase 8.1 最小工作流（`fb2e800`）、8.2 共享预算上下文（`cbe52cb`）、8.3 Planner 驱动分析工作流（`54bcd2a`）、8.4 有界上下文载荷与 Finding 验证（`b5e9faa`）8.5 生产路径图工作流接线（`91ddf7a`）、8.6 静态分析工具接入生产 Review 流程（`2e789aa`）与 8.7 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合、Reporter、预算分配）已完成，PR #6 待审查（详见记录 2026-10-11 (4)~(8)）。
+Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已推送；安全日志硬化（`c0fd25d`）、Phase 8.1 最小工作流（`fb2e800`）、8.2 共享预算上下文（`cbe52cb`）、8.3 Planner 驱动分析工作流（`54bcd2a`）、8.4 有界上下文载荷与 Finding 验证（`b5e9faa`）8.5 生产路径图工作流接线（`91ddf7a`）、8.6 静态分析工具接入生产 Review 流程（`2e789aa`）、8.7 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合、Reporter、预算分配）与 8.8 生产切换前质量加固（测试安全 opt-in、契约映射、状态语义表、Validator 加固、评测基础、切换守卫）与 8.9 状态语义与执行预算治理（映射不完整→DEGRADED、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、11s 清理预留与 DeadlineCappedExecutor 封顶、settings 预留校验；**8.8/8.9 改动未提交**）已完成，PR #6 待审查（详见记录 2026-10-11 (4)~(10)）。
 
 ## 当前总体进度
 
@@ -1353,11 +1353,11 @@ Bug Agent   Security Agent  Performance   Quality Agent
 
 ## Phase 8 状态
 
-**🟡 进行中（8.1~8.7 已完成并推送；其余子任务待做）**
+**🟡 进行中（8.1~8.9 完成；8.8/8.9 改动未提交；其余子任务待做）**
 
 ## 当前任务
 
-Phase 8.1~8.7 已完成（见记录 2026-10-11 (4)~(8)）：最小图（8.1）、共享预算上下文与状态/路由（8.2）、Planner 驱动分析工作流（8.3）、有界上下文载荷与 Finding 验证及 BUG Agent 真实上下文闭环（8.4）、生产路径经图工作流服务（8.5）、静态分析工具接入生产 Review 流程（8.6）、完整多 Agent 审查闭环（8.7：四维度 Agent + Validator + 聚合去重 + Reporter + 多节点预算分配；分析链路独立可运行并充分测试，生产路径按结论暂不切换）。仍未完成：分析链路与生产契约映射评估（评测集先行的覆盖面对等证明）、静态分析真实工具联调（本机未安装工具）、多节点 LLM 预算分摊已实现（8.7）但生产切换未做、finding 语义级合并与行号定位校验。
+Phase 8.1~8.9 已完成（见记录 2026-10-11 (4)~(10)）：最小图（8.1）、共享预算上下文与状态/路由（8.2）、Planner 驱动分析工作流（8.3）、有界上下文载荷与 Finding 验证及 BUG Agent 真实上下文闭环（8.4）、生产路径经图工作流服务（8.5）、静态分析工具接入生产 Review 流程（8.6）、完整多 Agent 审查闭环（8.7）、生产切换前质量加固（8.8）、状态语义与执行预算治理（8.9：映射不完整降级、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、共享 deadline 下的 11s 清理预留与工具等待封顶、settings 预留校验；**未提交 Git、未切换生产路由**）。仍未完成：真实工具/真实 LLM 联调、评测集实测、契约映射接入路由的替换式改造、Validator 语义闸门（规则引擎/真实性判定）、finding 语义级合并与行号定位校验。
 
 ## 阻塞问题
 
@@ -1923,6 +1923,83 @@ Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.7 已完成并推送；�
 
 ```text
 Phase 8 后续：分析链路与生产契约的映射评估（评测集先行的覆盖面对等证明）、静态分析真实工具联调（需环境安装工具后验证）、finding 语义级合并与行号定位校验
+```
+
+### 2026-10-11 (9)
+
+Phase 8.8（生产切换前的质量加固）完成（按要求**未提交 Git**，全部改动保留在工作区；未合并/未建 PR/未切路由）。
+
+已完成（测试为本次实际运行）：
+
+- [x] 测试安全（P0）：`agent/tests/conftest.py` 增加默认出站网络拦截（非回环 host 解析直接失败）+ `agent/tests/live_gates.py` 显式开关（`CODESENTINEL_DEEPSEEK_LIVE=1` / `CODESENTINEL_STATIC_TOOLS_LIVE=1`，默认关闭）；`test_deepseek_live.py` 改为**双条件 opt-in**（开关+密钥），默认即使存在 `DEEPSEEK_API_KEY` 也不再真实调用；新增 `test_static_tools_live.py`（真实 ruff/bandit/semgrep 联调用例，默认跳过）与 `test_live_gating.py`（证明默认运行下门关且出站被阻断）。证据：全量 **2674 passed / 8 skipped / 1 warning**，跳过明细 = 2 symlink（环境）+ 2 live DeepSeek（opt-in 关）+ 4 live 工具（opt-in 关；其中显示“工具不在 PATH”为次条件）
+- [x] 契约兼容（P0，独立映射不切路由）：`app/agents/reporter.py::to_review_task_result` —— Agent finding 1:1 映射 `ReviewFinding`（缺失字段**不伪造**，记入 `report["mapping_issues"]`）；静态-only finding 保留为 `report["static_findings"]` 结构化证据（不静默丢弃）；`report["analysis"]` 保留整份 `AnalysisReport` JSON（无损）；`mapping_complete` 显式；状态仅复制报告自身状态（不发明新策略）。测试 `test_analysis_report_mapping.py`（14 项：字段齐全、空结果、降级、混合来源、缺失字段、JSON 往返、稳定键集合）
+- [x] 状态语义表驱动：`test_status_semantics.py`（9 项）覆盖 HTTP COMPLETED/DEGRADED→200、LLM 异常/预算耗尽→500、缺字段→422 且零调用；Worker 侧 COMPLETED/DEGRADED→`mark_completed`、异常→`report_failure` 且按 Java `retry` 决定重入队/停止。**记录歧义（未改策略）**：生产 `ReviewService` 中静态阶段降级/超时**不改变** `ReviewTaskResult.status`（仅写 `report.static_analysis.degraded`），已用真实 ReviewService 用例锁定当前行为，待产品决策
+- [x] Validator 加固（不伪装语义闸门）：新增 planned-category 校验（仅在工作流传入 `allowed_categories` 时生效）、diff 变更行锚定分类（`changed_line_anchored` / `not_on_changed_lines` / `anchor_unknown`，静态与 Agent 分别计数；只做度量不删 finding）、明确不改写 confidence/severity（无输出提升）；`analysis_context` 产出 `changed_ranges` 并经 state 传入 Validator；`reporter` 对 `static_unverified` 增补显式 note。与 `PROJECT_DESIGN §9.6` / `AGENTS §8` 的**差距仍在**：无规则引擎参与、无“重读代码判真实性”的语义结论 —— 已记录为未验证/未实现，不声称完整语义验证
+- [x] 评测基础：仓库级 `test-cases/`（8 个样例：Java/Python × BUG/SECURITY/PERFORMANCE/QUALITY + `README.md` 格式与口径）+ `app/evaluation/{models,loader,metrics}.py`；设计并实现 TP/FP/FN、Precision、Recall、误报占比（FP/(TP+FP)）、rule match 单独统计与 `rule_match_rate`；匹配口径固定（类别+路径相等+行区间相交；规则不参与匹配）；**未设任何质量阈值、未运行 LLM**。测试 `test_eval_metrics.py`（25 项）
+- [x] 生产切换守卫强化：OpenAPI 契约断言（`/api/reviews` 响应 `ReviewTaskResult`、请求 `ReviewTaskRequest`）；运行期拦截测试（`AnalysisWorkflow` 构造/运行、`PlannerAgent.plan`、`FindingAgent.analyze`、`AnalysisContextStage.prepare` 均被 monkeypatch 为抛错）下真实请求仍 200 且 `ReviewService.review` 恰好 1 次（无重复 LLM、无分析链路）
+- [x] 静态/预算证据：真实 `SubprocessExecutor` + 不存在的可执行名 → `UNAVAILABLE`（不 spawn、零发现、degraded=true，`test_static_analysis_service.py`）；真实 ReviewService 静态超时后续行为锁定（LLM 继续、静态证据不注入）；执行层常量锁定（kill grace 1s + 2×reader join 5s = 单工具最坏 11s 拖尾，`test_documented_budget_bound`）。**预算余量分析（记录）**：`REVIEW_TOTAL_BUDGET=100 < AI_SERVICE_TIMEOUT=120` 为启动校验；静态工具串行 + 阶段份额（≤剩余 50%）+ 单工具超时上限 60s；但超时拖尾最坏每工具 +11s（2 工具 +22s），理论最坏墙钟可略超 120s → worker 先放弃（孤儿工作/重复重试）；默认配置下为**理论最坏、未实测**
+- [x] Java 静态工具（PMD/Checkstyle）：**本阶段未接入**（避免扩大重构）；最小方案记录：settings 增加 pmd_home / checkstyle jar+config（默认空=not_configured），`StaticAnalysisService` 在存在 .java 目标时构造对应适配器并参与同一阶段份额，未配置一律 `not_configured` 不伪造；真实联调沿用 `CODESENTINEL_STATIC_TOOLS_LIVE=1` 扩展 live 用例；风险=部署需提供 java/pmd/checkstyle 发行包与可信规则集
+- [x] 全量测试（2026-10-11 本次执行；范围：agent/ 全部 Python 用例）：**2674 passed / 8 skipped / 1 warning**（8.7 基线为 2593 passed / 2 skipped；本轮 +81 passed、+6 skipped，其中 2 项 DeepSeek live 从“默认真实执行”改为显式跳过）；`git diff --check` 通过；未提交
+
+mock 与真实证据边界（不夸大）：
+
+- **仅 mock/fixture**：8.6/8.7 分析链路全部用例、映射与状态语义（假服务/假 Worker 客户端）、HTTP（TestClient + 依赖覆盖）、评测指标（纯函数）、预算分配（纯函数 + 固定时钟日志）
+- **真实但本地无外网**：真实子进程层（仅 `sys.executable`，既有 `test_analyzer_execution.py`）、真实文件系统（workspace/path_guard）、真实执行器“缺工具”用例（不 spawn）
+- **真实环境不可验证（本阶段未做）**：ruff/bandit/semgrep/PMD/Checkstyle 真实运行与耗时（工具未安装；live 用例已就绪待开关）、真实 DeepSeek 多 Agent 调用、生产到 Java/MySQL 的新链路 E2E（历史 E2E 仅覆盖旧链路）
+
+未解决风险 / 生产切换阻塞项（本阶段处理后剩余）：
+
+- P0：契约映射已实现且有测试，但**切换本身未做**（按要求）；切换仍需：用同一映射接入路由的替换式改造 + Java/Worker 侧对新 `report` 键的确认（worker 目前不读 report，仅 schema 校验）+ 评测集实测数据
+- P0：Validator 语义闸门差距（§9.6/§8）：规则引擎未参与、真实性判定未实现；当前仅结构 + 锚定度量
+- P1：状态语义决策——静态降级是否应影响 `ReviewTaskResult.status`（现不影响）；not_configured 上下文在生产=非降级、在分析链路=降级，两套语义待统一
+- P1：预算余量最坏情况（静态超时拖尾 11s/工具；默认 100/120 理论最坏可超 120s）——需用户决策（收紧校验 / 执行层硬截止 / 接受重试）
+- P1：真实工具与真实 LLM 联调未执行；分析链路覆盖率/准确率数据为空（评测集仅样例，未跑真实输出）
+- P2：Java 静态工具未接入（方案已记录）；PMD/Checkstyle 生产价值需环境支持
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.8 完成；8.8 改动未提交；生产路径未切换）
+```
+
+下一步：
+
+```text
+Phase 8 后续：真实工具联调（opt-in 开关已就绪）→ 评测集回放/实测 → 状态语义与预算策略决策 → 契约映射接入路由的替换式改造（需单独批准）
+```
+
+### 2026-10-11 (10)
+
+Phase 8.9（状态语义与执行预算治理）实施完成（按要求**未提交 Git**；8.8+8.9 改动均保留在工作区；未切换生产路由）。
+
+已实现（用户已确认决策 A~E）：
+
+- [x] 决策 A（映射不完整降级）：`app/agents/reporter.py` 新增 `resolve_mapping_status` —— 映射不完整且原状态 COMPLETED → DEGRADED；DEGRADED/FAILED 保持不变（绝不上调）；`report["degraded"]` 同步为 True；保留 `mapping_complete` / `mapping_issues` / `static_findings` / 完整 `analysis` 与 summary 明示；Worker 语义不变（仅异常/HTTP 错误进入失败重试）
+- [x] 决策 B（静态执行降级）：`review_service.review` 最终状态改为 `context_degraded or static_degraded`，summary 增补 "static analysis degraded"；TIMEOUT/ERROR/UNAVAILABLE/部分失败 → 整体 DEGRADED，同时保留各工具 `status_counts`、`failed_tools` 与已有 findings（findings 继续注入 Prompt）
+- [x] 决策 C（Semgrep 未配置不单独降级）：`StaticAnalysisOutcome.degraded` 收窄为“实际执行失败（failed_tools）或预算耗尽（budget_exhausted / 调度器跳过工具）”；`not_configured_tools`（缺可信配置、显式禁用可执行名）仅记录、不降级；已启用工具的真实失败（UNAVAILABLE/TIMEOUT/ERROR/PARSE_ERROR）仍降级
+- [x] 决策 D（配置关闭显式形状）：新增 `DisabledStaticAnalysisService`（零结果、`notes=["disabled"]`、不降级）；router 在 `STATIC_ANALYSIS_ENABLED=false` 时注入 → 报告得到稳定 `static_analysis={available:false, degraded:false, reason:"disabled", ...零计数}`；`ReviewService` 直接构造且未注入服务时保持旧形状（无该键），不破坏既有调用方
+- [x] 决策 E（完成/失败语义）：DEGRADED 仍为正常返回/完成；状态语义测试新增“映射不完整 → DEGRADED → worker `mark_completed`、不 `report_failure`”
+- [x] 统一 deadline 与清理预留：`execution.py` 新增派生常量 `PROCESS_CLEANUP_RESERVE_SECONDS = 1s grace + 2×5s reader join = 11s`（推导，非实测）；`static_analysis_service.analyze` 以 `deadline_budget = remaining − reserve` 约束阶段，remaining ≤ reserve 时不启动任何工具并记 `budget_exhausted`；`stage_budget = min(剩余×50%, deadline_budget)`；新增 `DeadlineCappedExecutor`（执行时复核 `remaining−reserve` 并封顶单次等待；预留耗尽时返回显式 TIMEOUT 且不启动命令）
+- [x] 配置校验：`settings` 在既有 `budget < timeout` 之上增加 `budget + 11 < AI_SERVICE_TIMEOUT`（默认 111<120 ✓；109/120 拒绝、108/120 通过）；未新增配置项；所有阶段继续共享同一单调 deadline，无重置
+- [x] 定向测试（本次实际运行，全部离线：mock / 固定时钟 / TestClient / 本地可信 `sys.executable` 子进程）：15 个文件 → **309 passed / 0 failed**；覆盖映射状态 6 项、worker 不重试、静态 OK 零发现→COMPLETED、TIMEOUT/UNAVAILABLE/部分失败→DEGRADED 且保留 findings、Semgrep not_configured→COMPLETED、disabled 形状、固定时钟 reserve 边界（≤、=、>）、DeadlineCappedExecutor 封顶/耗尽不启动/参数校验、settings 边界、HTTP 200/422/500 表、生产守卫
+- [x] `git diff --check` 通过；未 commit/push
+
+已知限制 / 未验证：
+
+- `AI_SERVICE_TIMEOUT − REVIEW_TOTAL_BUDGET = 20s` 仅为**配置差额**，未实测序列化/网络/worker 开销；`DeadlineCappedExecutor` 使子进程等待不超过 `deadline−reserve`，但 `asyncio.to_thread` 无线程级取消——超时后的进程终止与流清理由执行器在预留内完成（推导上界，未用真实工具实测）
+- 11s 清理预留为常量推导（grace + 2×join），非墙钟实测；真实静态工具与真实 DeepSeek 均未运行（live 开关默认关闭，未改动）
+- 分析链路（非生产）沿用同一 RequestBudget，其静态降级语义已同步收窄但未新增其测试范围
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.9 完成；8.8/8.9 改动未提交；生产路径未切换）
+```
+
+下一步：
+
+```text
+Phase 8 后续：提交前复核（需用户批准）→ 真实工具/LLM 联调（opt-in 已就绪）→ 评测集回放 → 契约映射接入路由的替换式改造（需单独批准）
 ```
 
 ### 2026-10-10
@@ -3258,7 +3335,7 @@ Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / pic
 Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
 ```
 
-下一步为 **Phase 8：LangGraph Multi-Agent 后续子任务**（8.1~8.7 已完成并推送，见记录 2026-10-11 (4)~(8)；基线分支 `feature/phase8-langgraph-multi-agent` 已推送，PR #6 待审查）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文与多节点预算分配、Planner 与四个维度 Agent、有界上下文载荷与 Finding 验证、Validator（统一验证 + 安全计数）、确定性聚合去重（跨来源保守合并）、Reporter（稳定报告结构 + degraded 显式化）、生产路径图工作流接线、静态分析生产接入、完整分析链路独立可运行；仍待实现：分析链路与生产契约的映射评估（评测集先行的覆盖面对等证明；当前生产路径按结论保持 ReviewWorkflow/ReviewService）、静态分析真实工具联调（本机未安装工具）、finding 语义级合并与行号定位校验。
+下一步为 **Phase 8：LangGraph Multi-Agent 后续子任务**（8.1~8.9 完成，见记录 2026-10-11 (4)~(10)；8.8/8.9 改动按要求未提交；基线分支 `feature/phase8-langgraph-multi-agent`，PR #6 待审查）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文与多节点预算分配、Planner 与四个维度 Agent、有界上下文载荷与 Finding 验证、Validator（结构验证 + 变更行锚定 + 类别校验 + 安全计数）、确定性聚合去重、Reporter（稳定报告结构 + degraded 显式化）、`AnalysisReport → ReviewTaskResult` 显式映射（映射不完整→DEGRADED）、静态执行降级与 disabled 显式形状、共享 deadline 清理预留与工具等待封顶、评测基础（test-cases + 指标计算）、生产切换强守卫、默认测试安全（live opt-in + 出站网络阻断）；仍待实现：分析链路与生产契约映射评估（评测集实测）、真实工具/真实 LLM 联调（本机未安装工具；opt-in 用例已就绪）、契约映射接入路由的替换式改造、finding 语义级合并与行号定位校验、Validator 语义闸门（规则引擎/真实性判定）、Java 静态工具接入（方案已记录）。
 
 已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 

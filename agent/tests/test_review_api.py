@@ -211,7 +211,10 @@ def test_review_workflow_dependency_builds_a_workflow():
 def test_static_analysis_dependency_is_configurable(monkeypatch):
     from app.api.review_router import get_static_analysis_service
     from app.config.settings import settings
-    from app.services.static_analysis_service import StaticAnalysisService
+    from app.services.static_analysis_service import (
+        DisabledStaticAnalysisService,
+        StaticAnalysisService,
+    )
 
     monkeypatch.setattr(settings, "STATIC_ANALYSIS_ENABLED", True)
     assert isinstance(
@@ -219,7 +222,14 @@ def test_static_analysis_dependency_is_configurable(monkeypatch):
     )
 
     monkeypatch.setattr(settings, "STATIC_ANALYSIS_ENABLED", False)
-    assert get_static_analysis_service() is None
+    disabled = get_static_analysis_service()
+    assert isinstance(disabled, DisabledStaticAnalysisService)
+
+    from app.services.request_budget import RequestBudget
+
+    outcome = disabled.analyze({"a.py": "x = 1\n"}, RequestBudget(5))
+    assert outcome.notes == ["disabled"]
+    assert outcome.degraded is False
 
 
 def test_review_service_dependency_receives_static_service():

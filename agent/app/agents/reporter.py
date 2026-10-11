@@ -19,11 +19,14 @@ Truthfulness rules:
 from app.schemas.report import (
     AnalysisFinding,
     AnalysisReport,
+    FindingSource,
     ReportStatus,
 )
 from app.schemas.review import (
     Category,
+    ReviewFinding,
     ReviewTaskRequest,
+    ReviewTaskResult,
     Severity,
 )
 
@@ -31,6 +34,8 @@ NOTE_EMPTY_DEGRADED = (
     "no findings were reported because the analysis degraded; this is "
     "not a clean result"
 )
+
+MAPPING_MISSING_AGENT_FIELDS = "missing_agent_fields"
 
 
 def build_analysis_report(
@@ -163,6 +168,185 @@ def _build_notes(
             "validator failed: "
             + str(validation_summary.get("failed"))
         )
+    if validation_summary is not None:
+        unverified = validation_summary.get("static_unverified") or 0
+        if unverified:
+            notes.append(
+                f"{unverified} static finding(s) could not be verified "
+                "against the bounded payload; kept as evidence"
+            )
     if not executed_agents and not failed_agents and not skipped_agents:
         notes.append("no agent node was planned")
     return notes
+
+
+def resolve_mapping_status(status: str, mapping_complete: bool) -> str:
+    """Status after mapping, never improving the original one.
+
+    An incomplete mapping (a finding that could not be represented as a
+    ReviewFinding) marks a COMPLETED result as DEGRADED. DEGRADED stays
+    DEGRADED and FAILED stays FAILED: a mapping gap must never overwrite
+    or hide a more severe status. The task still completes normally; the
+    worker retry path is reserved for exceptions and HTTP errors.
+    """
+    if mapping_complete or status != "COMPLETED":
+        return status
+    return "DEGRADED"
+
+
+def to_review_task_result(report: AnalysisReport) -> ReviewTaskResult:
+    """Map one AnalysisReport onto the production API contract.
+
+    Explicit and lossless mapping rules (Phase 8.8):
+
+    - Agent findings map 1:1 onto ReviewFinding. Their confidence, title,
+      reason and suggestion are guaranteed non blank by the validator; a
+      defensive missing field is NOT invented: the finding is recorded in
+      report["mapping_issues"] (with safe metadata: file path, rule id,
+      line range and the missing field names) and left out of findings.
+    - Static only findings cannot become ReviewFinding without inventing
+      confidence and description fields, so they are preserved as
+      structured evidence in report["static_findings"] (tool, rule id,
+      severity, category, message, path and line range); nothing is
+      silently dropped.
+    - The full AnalysisReport JSON is preserved under report["analysis"],
+      so no information (sources, tool metadata, notes, stage summaries)
+      is lost even when the legacy fields cannot carry it.
+    - status follows Phase 8.9 decision A: an incomplete mapping marks a
+      COMPLETED result as DEGRADED (DEGRADED and FAILED are never
+      improved); the task still returns normally, so a mapping gap alone
+      never triggers a worker retry. mapping_complete stays False and the
+      problem details stay in mapping_issues / summary.
+    """
+    findings: list[ReviewFinding] = []
+    static_evidence: list[dict] = []
+    mapping_issues: list[dict] = []
+    merged_static = 0
+
+    for finding in report.findings:
+        has_agent = FindingSource.AGENT in finding.sources
+        has_static = FindingSource.STATIC in finding.sources
+        if has_agent and has_static:
+            merged_static += 1
+        if not has_agent:
+            static_evidence.append(_static_evidence_entry(finding))
+            continue
+        missing = _missing_agent_fields(finding)
+        if missing:
+            mapping_issues.append(
+                {
+                    "reason": MAPPING_MISSING_AGENT_FIELDS,
+                    "fields": missing,
+                    "file_path": finding.file_path,
+                    "rule_id": finding.rule_id,
+                    "start_line": finding.start_line,
+                    "end_line": finding.end_line,
+                }
+            )
+            continue
+        findings.append(
+            ReviewFinding(
+                category=finding.category,
+                severity=finding.severity,
+                confidence=finding.confidence,
+                rule_id=finding.rule_id,
+                title=finding.title,
+                file_path=finding.file_path,
+                start_line=finding.start_line,
+                end_line=finding.end_line,
+                description=finding.message,
+                reason=finding.reason,
+                suggestion=finding.suggestion,
+                references=list(finding.references),
+            )
+        )
+
+    mapping_complete = not mapping_issues
+    status = resolve_mapping_status(report.status.value, mapping_complete)
+    summary = (
+        f"Analysis {status.lower()} for "
+        f"{report.repository}#{report.pr_number}: "
+        f"{len(findings)} finding(s) reported."
+    )
+    if report.degraded:
+        summary += (
+            " Analysis degraded; incomplete stages are recorded in the "
+            "report."
+        )
+    if mapping_issues:
+        summary += (
+            f" {len(mapping_issues)} finding(s) could not be mapped and "
+            "are recorded in report.mapping_issues; the result is marked "
+            "DEGRADED because it is incomplete."
+        )
+
+    payload = {
+        "summary": summary,
+        "total_findings": len(findings),
+        "degraded": report.degraded or not mapping_complete,
+        "status": status,
+        "mapping_complete": mapping_complete,
+        "mapping_issues": mapping_issues,
+        "analysis": report.model_dump(mode="json"),
+        "severity_counts": dict(report.severity_counts),
+        "source_counts": dict(report.source_counts),
+        "static_evidence_merged": merged_static,
+        "static_findings": static_evidence,
+        "static_finding_count": len(static_evidence),
+        "duplicates_merged": report.duplicates_merged,
+        "agents": {
+            "planned": [
+                category.value for category in report.planned_agents
+            ],
+            "executed": [
+                category.value for category in report.executed_agents
+            ],
+            "failed": [
+                category.value for category in report.failed_agents
+            ],
+            "skipped": [
+                category.value for category in report.skipped_agents
+            ],
+            "recoverable_errors": list(report.recoverable_errors),
+        },
+        "context": report.context,
+        "static_analysis": report.static_analysis,
+        "validation": report.validation,
+        "notes": list(report.notes),
+    }
+    return ReviewTaskResult(
+        task_id=report.task_id,
+        status=status,
+        report=payload,
+        findings=findings,
+    )
+
+
+def _missing_agent_fields(finding: AnalysisFinding) -> list[str]:
+    """Field names that a ReviewFinding requires but this one lacks."""
+    missing: list[str] = []
+    for name, value in (
+        ("confidence", finding.confidence),
+        ("title", finding.title),
+        ("reason", finding.reason),
+        ("suggestion", finding.suggestion),
+    ):
+        if value is None or (
+            isinstance(value, str) and not value.strip()
+        ):
+            missing.append(name)
+    return missing
+
+
+def _static_evidence_entry(finding: AnalysisFinding) -> dict:
+    return {
+        "tool": finding.tool.value if finding.tool is not None else None,
+        "rule_id": finding.rule_id,
+        "category": finding.category.value,
+        "severity": finding.severity.value,
+        "message": finding.message,
+        "file_path": finding.file_path,
+        "start_line": finding.start_line,
+        "end_line": finding.end_line,
+        "sources": [source.value for source in finding.sources],
+    }

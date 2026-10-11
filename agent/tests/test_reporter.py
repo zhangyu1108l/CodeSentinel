@@ -234,3 +234,16 @@ class TestDegradedSemantics:
         assert report.degraded is False
         assert NOTE_EMPTY_DEGRADED not in report.notes
         assert report.finding_count == 0
+
+    def test_unverified_static_findings_are_noted(self):
+        report = build(
+            validation_summary={
+                "agent_kept": 1,
+                "static_unverified": 2,
+            }
+        )
+
+        assert any(
+            "2 static finding(s) could not be verified" in note
+            for note in report.notes
+        )

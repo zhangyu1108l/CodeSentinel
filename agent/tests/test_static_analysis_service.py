@@ -263,7 +263,7 @@ class TestToolAvailability:
             StaticAnalysisTool.SEMGREP
         ]
 
-    def test_invalid_semgrep_config_degrades_without_running_it(
+    def test_invalid_semgrep_config_is_not_configured_without_degrading(
         self, tmp_path
     ):
         executor = FakeExecutor([completed(), completed(bandit_payload())])
@@ -275,7 +275,9 @@ class TestToolAvailability:
             StaticAnalysisTool.SEMGREP
         ]
         assert NOTE_SEMGREP_CONFIG_INVALID in outcome.notes
-        assert outcome.degraded is True
+        # Decision C: a missing trusted config is an optional capability
+        # gap, not an execution failure of the enabled tools.
+        assert outcome.degraded is False
 
     def test_invalid_inputs_are_caller_defects(self, tmp_path):
         executor = FakeExecutor()
@@ -483,13 +485,14 @@ class TestBudgetSharing:
                 time.sleep(0.3)
                 return completed()
 
-        # Budget 0.5s, stage share 0.5 -> the stage deadline is ~0.25s; the
-        # first (fake) tool consumes 0.3s, so the scheduler must not start
-        # the second one. The fake executor ignores its own timeout, which
-        # is exactly why the scheduler gate has to hold.
+        # remaining 11.2 - reserve 11 = 0.2s deadline budget; stage share
+        # min(5.6, 0.2) = 0.2s, so the first (fake) tool consumes 0.3s and
+        # the scheduler must not start the second one. The fake executor
+        # ignores its own timeout, which is exactly why the scheduler gate
+        # has to hold; the wrapper still caps the wait at 0.1s per tool.
         executor = SlowExecutor()
         outcome = make_service(executor).analyze(
-            PY_FILE, RequestBudget(0.5)
+            PY_FILE, RequestBudget(11.2)
         )
         assert [r.tool for r in outcome.results] == [
             StaticAnalysisTool.RUFF
@@ -580,3 +583,118 @@ class TestPayloadChain:
         assert "F401" in payload.static_section
         assert payload.paths == ["pkg/mod.py"]
         assert payload.line_ranges["pkg/mod.py"] == [(1, 1)]
+
+
+class TestRealExecutorAvailability:
+    def test_missing_executables_are_unavailable_with_real_executor(self):
+        """Real SubprocessExecutor, no fake: a missing tool must degrade.
+
+        The executables are intentionally names that do not exist on any
+        machine, so this test spawns nothing and needs no installed tool.
+        """
+        service = StaticAnalysisService(
+            ruff_executable="codesentinel-missing-tool-ruff",
+            bandit_executable="codesentinel-missing-tool-bandit",
+            semgrep_config_path=None,
+        )
+
+        outcome = service.analyze(PY_FILE, RequestBudget(30))
+
+        statuses = {result.tool: result.status for result in outcome.results}
+        assert statuses == {
+            StaticAnalysisTool.RUFF: StaticAnalysisStatus.UNAVAILABLE,
+            StaticAnalysisTool.BANDIT: StaticAnalysisStatus.UNAVAILABLE,
+        }
+        assert outcome.aggregate.findings == []
+        assert outcome.degraded is True
+        assert outcome.budget_exhausted is False
+        summary = outcome.report_summary()
+        assert set(summary["failed_tools"]) == {"RUFF", "BANDIT"}
+        assert summary["findings"] == 0
+
+
+class TestDocumentedBudgetBound:
+    def test_execution_overhead_constants_are_locked(self):
+        """The documented static stage bound depends on these constants.
+
+        A timed out tool can overrun its own timeout by the terminate
+        grace plus two reader joins; DEVELOPMENT_STATUS.md documents the
+        resulting row (11s per timed out tool, plus the per tool cap).
+        If the constants change, that analysis must be updated.
+        """
+        from app.analyzers import execution
+
+        grace = execution._TERMINATE_GRACE_SECONDS
+        join = execution._READER_JOIN_TIMEOUT_SECONDS
+        assert grace == 1.0
+        assert join == 5.0
+        assert grace + 2 * join == 11.0
+        assert execution.PROCESS_CLEANUP_RESERVE_SECONDS == 11.0
+
+
+class TestDeadlineReserve:
+    """Fixed clock tests for the Phase 8.9 shared deadline reserve."""
+
+    def test_tool_timeout_leaves_the_cleanup_reserve(self):
+        from app.analyzers.execution import (
+            PROCESS_CLEANUP_RESERVE_SECONDS,
+        )
+
+        clock = [100.0]
+        budget = RequestBudget(30, clock=lambda: clock[0])
+        executor = FakeExecutor(
+            [completed(), completed(bandit_payload())]
+        )
+        outcome = make_service(executor).analyze(PY_FILE, budget)
+        assert len(outcome.results) == 2
+        # remaining 30 - reserve 11 = 19; stage min(15, 19) = 15; per
+        # tool 7.5 and the executor wrapper cannot raise it.
+        for request in executor.requests:
+            assert request.timeout_seconds == pytest.approx(7.5)
+            assert request.timeout_seconds <= (
+                30 - PROCESS_CLEANUP_RESERVE_SECONDS
+            )
+
+    def test_no_tool_starts_when_remaining_is_not_above_reserve(self):
+        from app.analyzers.execution import (
+            PROCESS_CLEANUP_RESERVE_SECONDS,
+        )
+
+        assert PROCESS_CLEANUP_RESERVE_SECONDS == 11.0
+        clock = [0.0]
+        budget = RequestBudget(10, clock=lambda: clock[0])
+        executor = FakeExecutor()
+        outcome = make_service(executor).analyze(PY_FILE, budget)
+        assert executor.requests == []
+        assert outcome.results == []
+        assert outcome.budget_exhausted is True
+        assert REASON_BUDGET_EXHAUSTED in outcome.notes
+        assert outcome.degraded is True
+
+    def test_remaining_just_above_reserve_still_starts_tools(self):
+        clock = [0.0]
+        budget = RequestBudget(12, clock=lambda: clock[0])
+        executor = FakeExecutor(
+            [completed(), completed(bandit_payload())]
+        )
+        outcome = make_service(executor).analyze(PY_FILE, budget)
+        assert len(executor.requests) == 2
+        # remaining 12 - reserve 11 = 1; stage min(6, 1) = 1; per tool
+        # 0.5.
+        for request in executor.requests:
+            assert request.timeout_seconds == pytest.approx(0.5)
+        assert outcome.budget_exhausted is False
+
+    def test_all_configured_tools_ok_is_not_degraded_under_reserve(self):
+        from app.analyzers.execution import (
+            PROCESS_CLEANUP_RESERVE_SECONDS,
+        )
+
+        clock = [0.0]
+        budget = RequestBudget(30, clock=lambda: clock[0])
+        executor = FakeExecutor(
+            [completed(), completed(bandit_payload())]
+        )
+        outcome = make_service(executor).analyze(PY_FILE, budget)
+        assert outcome.degraded is False
+        assert PROCESS_CLEANUP_RESERVE_SECONDS == 11.0

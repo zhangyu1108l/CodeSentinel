@@ -9,16 +9,18 @@ the aggregator.
 
 Budget sharing (one review, one RequestBudget):
 
+- every stage shares one absolute monotonic deadline (RequestBudget); no
+  stage ever resets it;
 - the stage may use at most `stage_share` (default 0.5) of the remaining
   shared budget, so at least the rest stays available for the LLM stage;
-- the stage budget is split equally between the tools that are configured
-  and capped by the framework default (60s per tool);
-- the scheduler additionally gates every tool start by the same stage
-  budget, so a slow stage cannot start more tools than its share allows.
-
-A tool that times out can overrun its own equal share by at most the
-reader join bound of the execution layer; it can never restart a full
-budget.
+- the stage never consumes the derived process cleanup reserve
+  (PROCESS_CLEANUP_RESERVE_SECONDS, Phase 8.9): when the remaining time
+  is not larger than the reserve, no tool is started and the skip is
+  recorded as budget exhausted;
+- each tool start is additionally gated by the static scheduler, and the
+  executor wrapper (DeadlineCappedExecutor) caps every command at
+  execution time to `remaining - reserve`, so a subprocess wait can never
+  outlive the shared deadline minus the bounded cleanup.
 
 Truthfulness rules:
 
@@ -26,11 +28,13 @@ Truthfulness rules:
   timeout, a truncated capture, invalid JSON or a broken process keeps
   its non OK StaticAnalysisResult status and never yields findings.
 - A failed tool is never reported as a successful scan with zero
-  findings: failed tools appear in failed_tools and set partial/degraded.
-- Semgrep requires a trusted rule config outside the reviewed workspace.
-  Without one it is never executed and is reported in
-  not_configured_tools; an invalid config degrades the same way instead
-  of breaking the review.
+  findings: failed tools appear in failed_tools and degrade the stage.
+- Optional capability gaps are reported, not hidden and not treated as
+  execution failures (Phase 8.9 decision C): a tool without its trusted
+  config or with a blank executable is reported in not_configured_tools
+  and does NOT degrade the stage by itself; a tool that was actually
+  attempted and failed (UNAVAILABLE / TIMEOUT / ERROR / PARSE_ERROR)
+  does.
 - No source content, file content, raw stdout/stderr or exception text
   ever leaves this module: only statuses, counts, tool names and finite
   error codes are reported.
@@ -50,7 +54,13 @@ from app.analyzers.aggregation import (
     aggregate_results,
 )
 from app.analyzers.bandit_adapter import BanditAdapter
-from app.analyzers.execution import DEFAULT_TIMEOUT_SECONDS, Executor
+from app.analyzers.execution import (
+    DEFAULT_TIMEOUT_SECONDS,
+    PROCESS_CLEANUP_RESERVE_SECONDS,
+    DeadlineCappedExecutor,
+    Executor,
+    SubprocessExecutor,
+)
 from app.analyzers.ruff_adapter import RuffAdapter
 from app.analyzers.scheduler import (
     SchedulerOutcome,
@@ -73,6 +83,7 @@ DEFAULT_STAGE_SHARE = 0.5
 REASON_BUDGET_EXHAUSTED = "budget_exhausted"
 REASON_NO_FILES = "no_files"
 REASON_NO_CONFIGURED_TOOLS = "no_configured_tools"
+REASON_DISABLED = "disabled"
 NOTE_SEMGREP_CONFIG_INVALID = "semgrep_config_invalid"
 
 
@@ -106,18 +117,21 @@ class StaticAnalysisOutcome:
 
     @property
     def degraded(self) -> bool:
-        """Whether the stage is incomplete in any explicit way.
+        """Whether the stage actually failed or could not complete.
 
-        True as soon as a tool failed, was skipped for lack of a trusted
-        config or could not start because the stage budget was used up.
-        A fully configured, fully successful stage is not degraded even
-        when it reports zero findings.
+        True as soon as an attempted tool failed (UNAVAILABLE / TIMEOUT /
+        ERROR / PARSE_ERROR), the scheduler could not start an applicable
+        tool because the stage budget ran out, or the stage itself could
+        not run because the shared budget was already spent.
+
+        Optional capability gaps are NOT degradations (Phase 8.9
+        decision C): a tool that was never attempted because its trusted
+        config or executable is not configured stays in
+        not_configured_tools and does not set this flag. A fully
+        successful stage is not degraded even when it reports zero
+        findings.
         """
-        return (
-            self.aggregate.partial
-            or bool(self.not_configured_tools)
-            or self.budget_exhausted
-        )
+        return self.aggregate.partial or self.budget_exhausted
 
     def report_summary(self) -> dict:
         """Small JSON safe status dict for the review report (no source)."""
@@ -249,7 +263,16 @@ class StaticAnalysisService:
                 started=started,
             )
 
-        stage_budget = budget.remaining() * self._stage_share
+        remaining = budget.remaining()
+        deadline_budget = remaining - PROCESS_CLEANUP_RESERVE_SECONDS
+        if deadline_budget <= 0:
+            return self._empty_outcome(
+                not_configured,
+                budget_exhausted=True,
+                notes=[REASON_BUDGET_EXHAUSTED],
+                started=started,
+            )
+        stage_budget = min(remaining * self._stage_share, deadline_budget)
         if stage_budget <= 0:
             return self._empty_outcome(
                 not_configured,
@@ -261,8 +284,18 @@ class StaticAnalysisService:
         per_tool_timeout = min(
             DEFAULT_TIMEOUT_SECONDS, stage_budget / len(planned_tools)
         )
+        base_executor = (
+            self._executor
+            if self._executor is not None
+            else SubprocessExecutor()
+        )
+        executor = DeadlineCappedExecutor(
+            base_executor,
+            remaining_seconds=budget.remaining,
+            reserve_seconds=PROCESS_CLEANUP_RESERVE_SECONDS,
+        )
         runner = ToolRunner(
-            executor=self._executor, timeout_seconds=per_tool_timeout
+            executor=executor, timeout_seconds=per_tool_timeout
         )
         adapters: dict[StaticAnalysisTool, object] = {}
         for tool in planned_tools:
@@ -360,6 +393,37 @@ class StaticAnalysisService:
             budget_exhausted=budget_exhausted,
             notes=notes,
             duration_ms=int((time.monotonic() - started) * 1000),
+        )
+
+
+class DisabledStaticAnalysisService:
+    """Explicitly disabled static analysis stage (Phase 8.9 decision D).
+
+    Used by the API router when STATIC_ANALYSIS_ENABLED is false: the
+    review report carries a stable disabled shape (available=false,
+    degraded=false, reason=disabled) instead of omitting the entry, and
+    the review is not degraded by a deliberate configuration choice.
+    analyze() never starts a tool, never touches the workspace and never
+    claims a scan.
+    """
+
+    def analyze(
+        self,
+        files: Mapping[str, str],
+        budget: RequestBudget,
+        parent_dir: str | None = None,
+    ) -> StaticAnalysisOutcome:
+        if not isinstance(budget, RequestBudget):
+            raise ValueError("budget must be a RequestBudget")
+        if not isinstance(files, Mapping):
+            raise ValueError("files must be a mapping of path to content")
+        return StaticAnalysisOutcome(
+            results=[],
+            aggregate=aggregate_results(SchedulerOutcome()),
+            not_configured_tools=[],
+            budget_exhausted=False,
+            notes=[REASON_DISABLED],
+            duration_ms=0,
         )
 
 

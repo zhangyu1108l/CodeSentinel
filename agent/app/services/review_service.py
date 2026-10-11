@@ -184,12 +184,28 @@ class ReviewService:
                 ) from error
             raise
 
-        degraded = context_report["degraded"]
-        if degraded:
+        context_degraded = context_report["degraded"]
+        static_degraded = bool(
+            static_report is not None and static_report.get("degraded")
+        )
+        degraded = context_degraded or static_degraded
+        if context_degraded and static_degraded:
+            summary = (
+                "Review degraded for "
+                f"{request.repository}#{request.pr_number}: PR context "
+                "unavailable; static analysis degraded."
+            )
+        elif context_degraded:
             summary = (
                 "Review degraded for "
                 f"{request.repository}#{request.pr_number}: "
                 "PR context unavailable."
+            )
+        elif static_degraded:
+            summary = (
+                "Review degraded for "
+                f"{request.repository}#{request.pr_number}: "
+                "static analysis degraded."
             )
         else:
             summary = (

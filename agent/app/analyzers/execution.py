@@ -27,6 +27,7 @@ Design notes:
 """
 
 import logging
+import math
 import os
 import shutil
 import signal
@@ -50,6 +51,16 @@ MAX_OUTPUT_BYTES = 16_000_000
 _READ_CHUNK_BYTES = 65536
 _TERMINATE_GRACE_SECONDS = 1.0
 _READER_JOIN_TIMEOUT_SECONDS = 5.0
+
+# Derived engineering bound for the bounded cleanup that can follow a tool
+# timeout: one terminate/reap grace plus the two reader joins. It is
+# computed from the constants above, NOT a measured wall clock value. A
+# caller that shares one deadline with the tools must keep this much time
+# in reserve before waiting on (or starting) a subprocess, so that killing
+# and draining the process cannot outlive the shared deadline.
+PROCESS_CLEANUP_RESERVE_SECONDS = (
+    _TERMINATE_GRACE_SECONDS + 2 * _READER_JOIN_TIMEOUT_SECONDS
+)
 
 
 class ExecutionStatus(str, Enum):
@@ -309,6 +320,64 @@ class SubprocessExecutor:
             stderr_truncated=stderr_reader.truncated,
             error_code=StaticAnalysisErrorCode.TIMEOUT,
         )
+
+
+class DeadlineCappedExecutor:
+    """Executor wrapper that caps every command to the shared deadline.
+
+    The wrapped request timeout becomes the smaller of the adapter's own
+    timeout and ``remaining_seconds() - reserve_seconds``, evaluated at
+    execution time, so a subprocess can never be waited on past the shared
+    deadline minus the bounded cleanup reserve. When that allowance is
+    already gone the command is NOT started and an explicit TIMEOUT
+    result is returned; the caller is expected to record the skip as a
+    budget exhausted tool first (the static scheduler gate), so this
+    branch is the defensive guarantee only.
+
+    The wrapper never reads source, never builds commands and never
+    changes an already smaller timeout.
+    """
+
+    def __init__(
+        self,
+        executor: Executor,
+        remaining_seconds,
+        reserve_seconds: float = PROCESS_CLEANUP_RESERVE_SECONDS,
+    ):
+        if not callable(getattr(executor, "execute", None)):
+            raise ValueError("executor must provide execute()")
+        if not callable(remaining_seconds):
+            raise ValueError("remaining_seconds must be callable")
+        if (
+            isinstance(reserve_seconds, bool)
+            or not isinstance(reserve_seconds, (int, float))
+            or not math.isfinite(reserve_seconds)
+            or reserve_seconds < 0
+        ):
+            raise ValueError(
+                "reserve_seconds must be a finite non-negative number"
+            )
+        self.executor = executor
+        self._remaining_seconds = remaining_seconds
+        self._reserve_seconds = float(reserve_seconds)
+
+    def execute(
+        self, request: CommandExecutionRequest
+    ) -> CommandExecutionResult:
+        allowed = self._remaining_seconds() - self._reserve_seconds
+        if allowed <= 0:
+            logger.debug(
+                "Shared deadline reserve is exhausted; tool not started"
+            )
+            return CommandExecutionResult(
+                status=ExecutionStatus.TIMEOUT,
+                error_code=StaticAnalysisErrorCode.TIMEOUT,
+            )
+        if request.timeout_seconds > allowed:
+            request = request.model_copy(
+                update={"timeout_seconds": allowed}
+            )
+        return self.executor.execute(request)
 
 
 class _StreamReader:

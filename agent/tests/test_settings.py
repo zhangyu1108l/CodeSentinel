@@ -39,6 +39,17 @@ class TestReviewBudgetAgainstWorkerTimeout:
         assert settings.REVIEW_TOTAL_BUDGET == 60
         assert settings.AI_SERVICE_TIMEOUT == 90
 
+    @pytest.mark.parametrize("budget", [110, 109])
+    def test_budget_must_keep_the_cleanup_reserve(self, budget):
+        # 110 + 11 = 121 >= 120 and 109 + 11 = 120 >= 120 are rejected;
+        # 108 + 11 = 119 < 120 is the largest accepted custom budget.
+        with pytest.raises(ValidationError, match="cleanup reserve"):
+            Settings(REVIEW_TOTAL_BUDGET=budget, AI_SERVICE_TIMEOUT=120)
+
+    def test_budget_just_below_reserve_boundary_is_accepted(self):
+        settings = Settings(REVIEW_TOTAL_BUDGET=108, AI_SERVICE_TIMEOUT=120)
+        assert settings.REVIEW_TOTAL_BUDGET == 108
+
 
 class TestValidationErrorsHideInputs:
     """Failure messages stay locatable without echoing the inputs."""

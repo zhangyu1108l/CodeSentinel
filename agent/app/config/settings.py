@@ -3,6 +3,8 @@ import math
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.analyzers.execution import PROCESS_CLEANUP_RESERVE_SECONDS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -73,7 +75,18 @@ class Settings(BaseSettings):
                 "AI_SERVICE_TIMEOUT so the AI service finishes before "
                 "the worker stops waiting "
                 f"(REVIEW_TOTAL_BUDGET={budget!r}, "
-                f"AI_SERVICE_TIMEOUT={worker_timeout!r})"
+                "AI_SERVICE_TIMEOUT="
+                f"{worker_timeout!r})"
+            )
+        if budget + PROCESS_CLEANUP_RESERVE_SECONDS >= worker_timeout:
+            raise ValueError(
+                "REVIEW_TOTAL_BUDGET must leave the static tool cleanup "
+                "reserve inside AI_SERVICE_TIMEOUT "
+                "(PROCESS_CLEANUP_RESERVE_SECONDS="
+                f"{PROCESS_CLEANUP_RESERVE_SECONDS:g}s, "
+                f"REVIEW_TOTAL_BUDGET={budget!r}, "
+                "AI_SERVICE_TIMEOUT="
+                f"{worker_timeout!r})"
             )
         return self
 

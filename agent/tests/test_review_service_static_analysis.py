@@ -23,6 +23,7 @@ from app.schemas.review import (
     Severity,
 )
 from app.schemas.static_analysis import (
+    StaticAnalysisErrorCode,
     StaticAnalysisFinding,
     StaticAnalysisResult,
     StaticAnalysisStatus,
@@ -154,6 +155,62 @@ def make_outcome(findings=None):
     )
 
 
+def make_timeout_outcome():
+    result = StaticAnalysisResult(
+        tool=StaticAnalysisTool.RUFF,
+        status=StaticAnalysisStatus.TIMEOUT,
+        error_code=StaticAnalysisErrorCode.TIMEOUT,
+    )
+    return StaticAnalysisOutcome(
+        results=[result],
+        aggregate=aggregate_results(SchedulerOutcome(results=[result])),
+    )
+
+
+def make_unavailable_outcome():
+    result = StaticAnalysisResult(
+        tool=StaticAnalysisTool.RUFF,
+        status=StaticAnalysisStatus.UNAVAILABLE,
+        error_code=StaticAnalysisErrorCode.TOOL_NOT_FOUND,
+    )
+    return StaticAnalysisOutcome(
+        results=[result],
+        aggregate=aggregate_results(SchedulerOutcome(results=[result])),
+    )
+
+
+def make_partial_outcome(findings):
+    ok = StaticAnalysisResult(
+        tool=StaticAnalysisTool.RUFF,
+        status=StaticAnalysisStatus.OK,
+        findings=list(findings),
+    )
+    failed = StaticAnalysisResult(
+        tool=StaticAnalysisTool.BANDIT,
+        status=StaticAnalysisStatus.UNAVAILABLE,
+        error_code=StaticAnalysisErrorCode.TOOL_NOT_FOUND,
+    )
+    return StaticAnalysisOutcome(
+        results=[ok, failed],
+        aggregate=aggregate_results(
+            SchedulerOutcome(results=[ok, failed])
+        ),
+    )
+
+
+def make_not_configured_semgrep_outcome():
+    ok = StaticAnalysisResult(
+        tool=StaticAnalysisTool.RUFF,
+        status=StaticAnalysisStatus.OK,
+        findings=[],
+    )
+    return StaticAnalysisOutcome(
+        results=[ok],
+        aggregate=aggregate_results(SchedulerOutcome(results=[ok])),
+        not_configured_tools=[StaticAnalysisTool.SEMGREP],
+    )
+
+
 class FakeStaticService:
     """Duck typed stand-in for StaticAnalysisService."""
 
@@ -261,14 +318,18 @@ class TestStaticStageWiring:
 
 
 class TestStaticStageDegradation:
-    def test_static_failure_degrades_without_breaking_review(self):
+    def test_static_failure_degrades_the_review(self):
         llm = make_llm()
         static = FakeStaticService(error=RuntimeError("boom"))
         service = make_service(llm=llm, static=static)
 
         result = asyncio.run(service.review(make_request()))
 
-        assert result.status == "COMPLETED"
+        # Phase 8.9 decision B: an attempted static stage that failed
+        # degrades the whole review, while the result still returns
+        # normally (no retry).
+        assert result.status == "DEGRADED"
+        assert "static analysis degraded" in result.report["summary"]
         llm.generate_findings.assert_awaited_once()
         report = result.report["static_analysis"]
         assert report["available"] is False
@@ -328,6 +389,100 @@ class TestStaticStageDegradation:
 
         llm.generate_findings.assert_not_awaited()
 
+    def test_static_timeout_degrades_the_review(self):
+        """Decision B: TIMEOUT degrades the review, evidence is kept.
+
+        The static stage keeps its per tool status counts and failed
+        tools; the LLM stage still runs on the remaining budget and no
+        fabricated evidence is injected.
+        """
+        llm = make_llm()
+        static = FakeStaticService(outcome=make_timeout_outcome())
+        service = make_service(llm=llm, static=static)
+
+        result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "DEGRADED"
+        llm.generate_findings.assert_awaited_once()
+        report = result.report["static_analysis"]
+        assert report["degraded"] is True
+        assert report["status_counts"]["TIMEOUT"] == 1
+        assert report["failed_tools"] == ["RUFF"]
+        assert report["findings"] == 0
+        user = llm.generate_findings.call_args[0][0][1]["content"]
+        assert "Static analysis evidence" not in user
+
+    def test_static_unavailable_degrades_the_review(self):
+        static = FakeStaticService(outcome=make_unavailable_outcome())
+        service = make_service(static=static)
+
+        result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "DEGRADED"
+        report = result.report["static_analysis"]
+        assert report["status_counts"]["UNAVAILABLE"] == 1
+        assert report["failed_tools"] == ["RUFF"]
+
+    def test_partial_static_failure_keeps_findings_and_degrades(self):
+        llm = make_llm()
+        static = FakeStaticService(
+            outcome=make_partial_outcome([make_static_finding()])
+        )
+        service = make_service(llm=llm, static=static)
+
+        result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "DEGRADED"
+        report = result.report["static_analysis"]
+        assert report["completed_tools"] == ["RUFF"]
+        assert report["failed_tools"] == ["BANDIT"]
+        assert report["findings"] == 1
+        user = llm.generate_findings.call_args[0][0][1]["content"]
+        assert "- [RUFF] F401" in user
+
+    def test_all_ok_zero_findings_stays_completed(self):
+        static = FakeStaticService(outcome=make_outcome([]))
+        service = make_service(static=static)
+
+        result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "COMPLETED"
+        report = result.report["static_analysis"]
+        assert report["degraded"] is False
+        assert report["findings"] == 0
+
+    def test_semgrep_not_configured_does_not_degrade(self):
+        static = FakeStaticService(
+            outcome=make_not_configured_semgrep_outcome()
+        )
+        service = make_service(static=static)
+
+        result = asyncio.run(service.review(make_request()))
+
+        # Decision C: an unconfigured optional tool is recorded, not a
+        # degradation of the enabled execution.
+        assert result.status == "COMPLETED"
+        report = result.report["static_analysis"]
+        assert report["degraded"] is False
+        assert report["not_configured_tools"] == ["SEMGREP"]
+
+    def test_disabled_static_analysis_is_explicit_and_not_degraded(self):
+        from app.services.static_analysis_service import (
+            DisabledStaticAnalysisService,
+        )
+
+        service = make_service(static=DisabledStaticAnalysisService())
+
+        result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "COMPLETED"
+        report = result.report["static_analysis"]
+        assert report["available"] is False
+        assert report["degraded"] is False
+        assert report["reason"] == "disabled"
+        assert report["tools_run"] == []
+        assert report["findings"] == 0
+
     def test_static_skip_shape_matches_completed_shape(self):
         static = FakeStaticService()
         service = make_service(
@@ -373,7 +528,9 @@ class TestStaticStageDegradation:
 
         result = asyncio.run(service.review(make_request()))
 
-        assert result.status == "COMPLETED"
+        # Missing executables are an attempted-but-failed execution, so
+        # the review degrades (decision B) while the result still returns.
+        assert result.status == "DEGRADED"
         report = result.report["static_analysis"]
         assert report["available"] is True
         assert report["degraded"] is True
