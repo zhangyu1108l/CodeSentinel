@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     REVIEW_TOTAL_BUDGET: float = 100
     REVIEW_TASK_MAX_RETRIES: int = 3
 
+    STATIC_ANALYSIS_ENABLED: bool = True
+    STATIC_ANALYSIS_RUFF_EXECUTABLE: str = "ruff"
+    STATIC_ANALYSIS_BANDIT_EXECUTABLE: str = "bandit"
+    STATIC_ANALYSIS_SEMGREP_EXECUTABLE: str = "semgrep"
+    STATIC_ANALYSIS_SEMGREP_CONFIG: str = ""
+
     @model_validator(mode="after")
     def _validate_review_budget_against_worker_timeout(
         self,

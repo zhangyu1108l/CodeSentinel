@@ -2,8 +2,10 @@ from app.prompts.code_context import (
     render_code_context,
     render_context_unavailable,
 )
+from app.prompts.static_analysis import render_static_findings
 from app.schemas.code_context import CodeContext
 from app.schemas.review import ReviewTaskRequest
+from app.schemas.static_analysis import StaticAnalysisFinding
 
 LEGACY_NOTE = (
     "Note: no file content or diff is provided for this review. "
@@ -69,6 +71,7 @@ def build_messages(
     request: ReviewTaskRequest,
     context: CodeContext | None = None,
     context_report: dict | None = None,
+    static_findings: list[StaticAnalysisFinding] | None = None,
 ) -> list[dict]:
     """Build the chat messages for a review request.
 
@@ -87,6 +90,11 @@ def build_messages(
 
     Content is only rendered from the provided context; nothing is
     invented when a file or the whole context is missing.
+
+    static_findings optionally carries the verified raw findings of the
+    deterministic static analysis tools (Phase 8.6). When present they are
+    appended as an evidence block; None and an empty list leave the user
+    message byte for byte unchanged, so legacy callers keep their prompt.
     """
     if request.files:
         files_section = ", ".join(request.files)
@@ -113,7 +121,11 @@ def build_messages(
     else:
         tail = LEGACY_NOTE
 
+    content = header + tail
+    if static_findings:
+        content += "\n\n" + render_static_findings(static_findings)
+
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": header + tail},
+        {"role": "user", "content": content},
     ]

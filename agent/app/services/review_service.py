@@ -1,19 +1,22 @@
-"""Review orchestration (Phase 5.2 + Phase 6.7.4 wiring + Phase 6.7.5 prompt).
+"""Review orchestration (Phase 5.2 + Phase 6.7.4 wiring + Phase 8.6 static stage).
 
 Flow:
 
     PrContextClient.fetch(task_id) -> PrContext
         -> CodeContextBuilder.build -> CodeContext
         -> Phase 6.6 context budget applied to its files
-        -> prompt assembly with the rendered CodeContext (Phase 6.7.5)
+        -> static analysis stage (Phase 8.6, optional; shared budget)
+        -> prompt assembly with the rendered CodeContext and the static
+           evidence (Phase 6.7.5 + Phase 8.6)
         -> LLM analysis (unchanged)
 
-Context failures never raise: they degrade the review (status DEGRADED
-plus a reason in report.context) and the prompt states that the PR
-context is unavailable, so the Phase 4 retry chain stays reserved for
-real review failures such as LLM errors, which keep propagating
-unchanged. When no context client is configured the Phase 5 prompt is
-kept as is.
+Context and static analysis failures never raise: they degrade the review
+(status DEGRADED plus a reason in report.context / report.static_analysis)
+and the prompt states what evidence is missing, so the Phase 4 retry chain
+stays reserved for real review failures such as LLM errors, which keep
+propagating unchanged. When no context client is configured the Phase 5
+prompt is kept as is; when no static analysis service is configured the
+report keeps its pre Phase 8.6 shape.
 
 Every review also runs under one total request budget (Phase 8 timeout
 governance): the context fetch is capped by both the local PR context
@@ -43,11 +46,16 @@ from app.llm.llm_service import LLMService
 from app.prompts.review import build_messages
 from app.schemas.code_context import CodeContext, ContextBudget
 from app.schemas.review import ReviewTaskRequest, ReviewTaskResult
+from app.schemas.static_analysis import (
+    StaticAnalysisFinding,
+    StaticAnalysisStatus,
+)
 from app.schemas.validation import validation_error_summary
 from app.services.request_budget import (
     RequestBudget,
     ReviewBudgetExceededError,
 )
+from app.services.static_analysis_service import StaticAnalysisService
 
 logger = logging.getLogger("codesentinel-ai.review_service")
 
@@ -55,6 +63,9 @@ STATUS_COMPLETED = "COMPLETED"
 STATUS_DEGRADED = "DEGRADED"
 REASON_NOT_CONFIGURED = "not_configured"
 REASON_BUDGET_EXHAUSTED = "budget_exhausted"
+REASON_CONTEXT_UNAVAILABLE = "context_unavailable"
+REASON_NO_FILES = "no_files"
+REASON_NO_TOOL_RESULTS = "no_tool_results"
 
 
 class ReviewService:
@@ -69,6 +80,13 @@ class ReviewService:
     injected for tests. review() also accepts an optional RequestBudget:
     a graph workflow injects its shared budget so every node uses the
     remaining time of one review instead of a fresh deadline.
+
+    static_analysis_service may be None (default), in which case no
+    static analysis runs and the report keeps its previous shape. When a
+    service is injected (production wiring), the stage runs inside the
+    same shared budget and the report gains a "static_analysis" entry;
+    the stage is fully degradable and never turns a tool failure into a
+    successful empty scan.
     """
 
     def __init__(
@@ -79,6 +97,7 @@ class ReviewService:
         context_budget: ContextBudget = None,
         request_budget_seconds: float = None,
         context_timeout_seconds: float = None,
+        static_analysis_service: StaticAnalysisService = None,
     ):
         self.llm_service = llm_service or LLMService()
         self.pr_context_client = pr_context_client
@@ -100,6 +119,7 @@ class ReviewService:
             ),
             "context_timeout_seconds",
         )
+        self.static_analysis_service = static_analysis_service
 
     async def review(
         self,
@@ -118,8 +138,18 @@ class ReviewService:
             budget = RequestBudget(self._request_budget_seconds)
         context, context_report = await self._load_context(request, budget)
 
+        static_findings: list[StaticAnalysisFinding] = []
+        static_report: dict | None = None
+        if self.static_analysis_service is not None:
+            static_findings, static_report = await self._run_static_analysis(
+                request, context, budget
+            )
+
         messages = build_messages(
-            request, context=context, context_report=context_report
+            request,
+            context=context,
+            context_report=context_report,
+            static_findings=static_findings,
         )
         logger.debug(
             "Review prompt built for task %d: messages=%d, chars=%d",
@@ -167,14 +197,18 @@ class ReviewService:
                 f"{request.repository}#{request.pr_number}."
             )
 
+        report = {
+            "summary": summary,
+            "total_findings": len(findings),
+            "context": context_report,
+        }
+        if static_report is not None:
+            report["static_analysis"] = static_report
+
         result = ReviewTaskResult(
             task_id=request.task_id,
             status=STATUS_DEGRADED if degraded else STATUS_COMPLETED,
-            report={
-                "summary": summary,
-                "total_findings": len(findings),
-                "context": context_report,
-            },
+            report=report,
             findings=findings,
         )
 
@@ -270,6 +304,81 @@ class ReviewService:
         )
         return context, summary
 
+    async def _run_static_analysis(
+        self,
+        request: ReviewTaskRequest,
+        context: CodeContext | None,
+        budget: RequestBudget,
+    ) -> tuple[list[StaticAnalysisFinding], dict]:
+        """Run the static analysis stage inside the shared budget.
+
+        The stage is a degradable sub-step like context loading: it never
+        raises into the review. Tool level failures already stay inside
+        the adapters as explicit non OK results; anything unexpected
+        (caller defect, broken service) degrades to an empty evidence
+        list recorded by class name only.
+
+        The service receives the same RequestBudget instance as the rest
+        of the review and may only use its share of the remaining time;
+        the LLM stage then uses what is left. Source content only flows
+        into the materialized workspace, never into logs.
+        """
+        if context is None:
+            return [], _static_skipped(REASON_CONTEXT_UNAVAILABLE)
+
+        files = {
+            file_context.file_diff.path: file_context.content.content
+            for file_context in context.files
+            if file_context.content_available
+            and file_context.content is not None
+            and file_context.content.content is not None
+        }
+        if not files:
+            return [], _static_skipped(REASON_NO_FILES)
+
+        try:
+            outcome = await asyncio.to_thread(
+                self.static_analysis_service.analyze, files, budget
+            )
+        except Exception as error:
+            reason = type(error).__name__
+            logger.warning(
+                "Static analysis unavailable for task %d; review "
+                "continues without tool evidence (reason=%s)",
+                request.task_id,
+                reason,
+            )
+            logger.debug(
+                "Static analysis failure detail for task %d",
+                request.task_id,
+                exc_info=True,
+            )
+            return [], _static_skipped(reason, degraded=True)
+
+        report = {
+            "available": bool(outcome.results),
+            "degraded": outcome.degraded,
+            "reason": (
+                None
+                if outcome.results
+                else (
+                    outcome.notes[0]
+                    if outcome.notes
+                    else REASON_NO_TOOL_RESULTS
+                )
+            ),
+        }
+        report.update(outcome.report_summary())
+        logger.info(
+            "Static analysis for task %d: tools_run=%d, findings=%d, "
+            "degraded=%s",
+            request.task_id,
+            len(outcome.results),
+            outcome.aggregate.finding_count,
+            outcome.degraded,
+        )
+        return outcome.findings, report
+
     def _apply_context_budget(self, context: CodeContext) -> CodeContext:
         """Apply the Phase 6.6 budget to the assembled context files."""
         budget = (
@@ -305,6 +414,31 @@ class ReviewService:
                 context.truncation is not None and context.truncation.applied
             ),
         }
+
+
+def _static_skipped(reason: str, degraded: bool = False) -> dict:
+    """Report entry for a static stage that never started a tool.
+
+    The shape mirrors a completed stage (available/degraded/reason plus
+    all summary keys at their empty values) so consumers can read it
+    uniformly; no result is fabricated and no scan is claimed.
+    """
+    return {
+        "available": False,
+        "degraded": degraded,
+        "reason": reason,
+        "tools_run": [],
+        "status_counts": {
+            status.value: 0 for status in StaticAnalysisStatus
+        },
+        "findings": 0,
+        "completed_tools": [],
+        "failed_tools": [],
+        "skipped_tools": [],
+        "budget_exhausted_tools": [],
+        "not_configured_tools": [],
+        "budget_exhausted": False,
+    }
 
 
 def _failure_reason(error: Exception) -> str:

@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from pydantic import BaseModel, Field
 
 from app.prompts.code_context import render_code_context
+from app.prompts.static_analysis import render_static_findings_lines
 from app.schemas.code_context import CodeContext, FileContext
 from app.schemas.static_analysis import StaticAnalysisFinding
 
@@ -169,18 +170,13 @@ def _render_code(
 def _render_static(
     findings: Sequence[StaticAnalysisFinding], limit: int
 ) -> tuple[str, int, int]:
-    selected = list(findings)[:limit]
-    lines = []
-    for finding in selected:
-        message = finding.message[:MAX_STATIC_MESSAGE_CHARS]
-        lines.append(
-            f"- [{finding.tool.value}] {finding.rule_id} "
-            f"({finding.severity.value}/{finding.category.value}) "
-            f"{finding.file_path}:{finding.start_line}-"
-            f"{finding.end_line}: {message}"
-        )
-    section = "\n".join(lines)
-    return section, len(selected), len(findings) - len(selected)
+    section = render_static_findings_lines(
+        findings,
+        max_findings=limit,
+        max_message_chars=MAX_STATIC_MESSAGE_CHARS,
+    )
+    included = min(len(findings), limit)
+    return section, included, len(findings) - included
 
 
 def _line_ranges_for(

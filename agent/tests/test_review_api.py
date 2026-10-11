@@ -206,3 +206,29 @@ def test_review_workflow_dependency_builds_a_workflow():
     )
 
     assert isinstance(workflow, ReviewWorkflow)
+
+
+def test_static_analysis_dependency_is_configurable(monkeypatch):
+    from app.api.review_router import get_static_analysis_service
+    from app.config.settings import settings
+    from app.services.static_analysis_service import StaticAnalysisService
+
+    monkeypatch.setattr(settings, "STATIC_ANALYSIS_ENABLED", True)
+    assert isinstance(
+        get_static_analysis_service(), StaticAnalysisService
+    )
+
+    monkeypatch.setattr(settings, "STATIC_ANALYSIS_ENABLED", False)
+    assert get_static_analysis_service() is None
+
+
+def test_review_service_dependency_receives_static_service():
+    from app.api.review_router import get_review_service
+
+    marker = object()
+    service = get_review_service(
+        llm_service=MagicMock(spec=LLMService),
+        pr_context_client=None,
+        static_analysis_service=marker,
+    )
+    assert service.static_analysis_service is marker
