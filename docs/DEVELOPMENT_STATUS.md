@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 8：LangGraph Multi-Agent — ⬜ 未开始（基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建，待启动）**
+**Phase 8：LangGraph Multi-Agent — 🟡 进行中（8.1 最小 LangGraph 工作流已完成并推送；其余子任务待做）**
 
 ## 当前任务
 
-Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建；Phase 8 尚未开始实现，按新阶段流程先阅读 / 检查 / 提计划。
+Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已推送；安全日志硬化（`c0fd25d`）与 Phase 8.1 最小 LangGraph 工作流（`fb2e800`）已完成，PR #6 待审查（详见记录 2026-10-11 (4)）。
 
 ## 当前总体进度
 
@@ -35,7 +35,7 @@ Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
 Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
-Phase 8  LangGraph Multi-Agent    ⬜ 未开始（基线分支已创建，待启动）
+Phase 8  LangGraph Multi-Agent    🟡 进行中（8.1 最小工作流已完成并推送；其余待做）
 Phase 9  GitHub 评论              ⬜ 未开始
 Phase 10 MySQL 历史记录           ⬜ 未开始
 ```
@@ -1353,11 +1353,11 @@ Bug Agent   Security Agent  Performance   Quality Agent
 
 ## Phase 8 状态
 
-**⬜ 未开始**
+**🟡 进行中（8.1 最小工作流已完成并推送；其余子任务待做）**
 
 ## 当前任务
 
-Phase 8 尚未开始实现；基线分支 `feature/phase8-langgraph-multi-agent` 已从 `main` 合并提交 `d305b47` 创建（2026-10-11）。按新阶段流程（先阅读 / 检查 / 提计划）确认后再进入实现。
+Phase 8.1 已完成：`langgraph==1.2.5`、最小单节点图（START→review→END，节点调用现有 `ReviewService`，沿用其请求预算，无第二个 LLM 调用）、`ReviewWorkflow` 门面与 6 项测试（见记录 2026-10-11 (4)）。图未接入生产入口；后续按新阶段流程拆分 8.2+。
 
 ## 阻塞问题
 
@@ -1751,6 +1751,35 @@ Phase 8：LangGraph Multi-Agent ⬜ 未开始（本次为预算治理加固，�
 
 ```text
 加固改动随超时预算治理一并评审 / 提交（当前未提交）；Phase 8 Multi-Agent 本体仍待启动
+```
+
+### 2026-10-11 (4)
+
+安全日志硬化提交并推送；PR #6 创建；Phase 8.1 最小 LangGraph 工作流完成。
+
+已完成（测试为本次实际运行）：
+
+- [x] 安全日志硬化（commit `c0fd25d`，`fix(agent): prevent validation input leakage in logs`）：新增 `app/schemas/validation.py`（`validation_error_summary` 仅输出错误数量 / 字段位置 / 错误类型）；`llm_service` / `pr_context_client` / `ai_client` 不再记录或外传可能包含输入预览的异常（LLM 侧 `from None`；Worker 侧改抛通用 `AiServiceResponseError`）；`review_service` 的 DEBUG 回溯对 `ValidationError` 改用安全摘要（其他异常保留 traceback）；`PrContext` / `ReviewTaskResult` / `LlmReviewOutput` 增加 `hide_input_in_errors` 纵深防御；新增/调整测试 8 项（哨兵值验证日志、异常链/回溯与对外消息）
+- [x] 提交顺序保持 A → B+C → D → 安全修复（`d0a6142` → `8134b44` → `2bfd78b` → `c0fd25d`）；分支推送至 `origin/feature/phase8-langgraph-multi-agent`（无强制推送、无历史改写）；PR #6 已创建：https://github.com/zhangyu1108l/CodeSentinel/pull/6
+- [x] Phase 8.1（commit `fb2e800`，`feat(agent): add minimal review graph workflow (Phase 8.1)`）：`langgraph==1.2.5` 写入 `agent/requirements.txt`；新增 `app/graph/`（`state.py`：`ReviewGraphState`（request / result / error，仅存异常类型名）；`workflow.py`：START→review→END 单节点图 + `ReviewWorkflow` 门面）；节点实际调用现有 `ReviewService.review()`，**沿用其请求预算**（无第二个 LLM 调用、无新超时/重试；多节点预算重新设计为后续任务）；失败路径可预测（状态记录类型名，门面抛 `WorkflowExecutionError`，不携带原始异常消息）
+- [x] 测试：`test_review_workflow.py` 6 项（结果/状态传递、单次 ReviewService 调用、错误状态、失败可预测且不含原始消息、默认服务）；全量（2026-10-11 本次执行；范围：agent/ 全部 Python 用例）：**2374 passed / 2 skipped / 1 warning**；`git diff --check` 通过
+
+已知风险 / 未完成：
+
+- 多节点预算分摊未实现（当前单节点沿用 ReviewService 预算）
+- 图未接入 `/api/reviews` 生产入口；静态分析工具未接入；Planner / Bug / Security / Performance / Quality / Validator / Reporter 均未实现
+- 既有残余项不变：Ruff / Bandit / Semgrep 真实工具联调待完成；§10 清单两项语义待确认；Java → GitHub 超时等（见 2026-10-11 (2)/(3)）
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1 最小工作流已完成并推送；其余子任务待做）
+```
+
+下一步：
+
+```text
+Phase 8.2 起：在 8.1 骨架上按计划小步实现 Planner / 各维度 Agent / Validator / Reporter（先阅读 / 检查 / 提计划）
 ```
 
 ### 2026-10-10
@@ -3086,7 +3115,7 @@ Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / pic
 Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
 ```
 
-下一步只能是 **Phase 8：LangGraph Multi-Agent**（尚未开始实现；基线分支 `feature/phase8-langgraph-multi-agent` 已创建；按新阶段流程先阅读 / 检查 / 提计划）。不提前实现调度器 / Agent / Prompt 接线。
+下一步为 **Phase 8：LangGraph Multi-Agent 后续子任务**（8.1 最小工作流已完成并推送，见记录 2026-10-11 (4)；基线分支 `feature/phase8-langgraph-multi-agent` 已推送，PR #6 待审查）。未实现部分不提前标记完成；调度器与最小图已就位，Planner / 各维度 Agent / Validator / Reporter 仍未实现。
 
 已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 
