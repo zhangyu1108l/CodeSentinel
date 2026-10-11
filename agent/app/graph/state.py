@@ -78,6 +78,8 @@ class AnalysisGraphState(ReviewGraphState, total=False):
     context_report: safe status summary of the context load.
     static_report: safe status summary of the static analysis stage.
     static_findings: raw static findings kept for the validator.
+    changed_ranges: head revision changed-line ranges per file, used by
+        the validator to classify findings against the diff.
     validated_findings / validated_static: outputs of the validator,
         consumed by the reporter (no unvalidated finding is reported).
     validation_summary: safe validation counters / reason codes.
@@ -93,6 +95,7 @@ class AnalysisGraphState(ReviewGraphState, total=False):
     context_report: dict | None
     static_report: dict | None
     static_findings: list[StaticAnalysisFinding]
+    changed_ranges: dict[str, list[tuple[int, int]]]
     validated_findings: list[ReviewFinding]
     validated_static: list[StaticAnalysisFinding]
     validation_summary: dict | None

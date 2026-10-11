@@ -65,6 +65,9 @@ class ContextStageResult:
     static_findings: list[StaticAnalysisFinding] = field(
         default_factory=list
     )
+    changed_ranges: dict[str, list[tuple[int, int]]] = field(
+        default_factory=dict
+    )
 
 
 class AnalysisContextStage:
@@ -166,6 +169,7 @@ class AnalysisContextStage:
             context_report=summary,
             static_report=static_report,
             static_findings=static_findings,
+            changed_ranges=_changed_ranges(code_context),
         )
 
     def _build_context(self, pr_context) -> CodeContext:
@@ -243,6 +247,21 @@ def _collect_content_files(code_context: CodeContext) -> dict[str, str]:
         and file_context.content is not None
         and file_context.content.content is not None
     }
+
+
+def _changed_ranges(
+    code_context: CodeContext,
+) -> dict[str, list[tuple[int, int]]]:
+    """Head revision changed-line ranges per file (diff evidence)."""
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    for file_context in code_context.files:
+        changed = [
+            (item.start_line, item.end_line)
+            for item in file_context.file_diff.changed_ranges
+        ]
+        if changed:
+            ranges[file_context.file_diff.path] = changed
+    return ranges
 
 
 def _context_report(available: bool, degraded: bool, reason: str) -> dict:

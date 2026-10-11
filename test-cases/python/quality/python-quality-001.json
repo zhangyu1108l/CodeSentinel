@@ -1,0 +1,21 @@
+{
+  "case_id": "python-quality-001",
+  "language": "python",
+  "category": "QUALITY",
+  "source": {
+    "file_path": "sample.py",
+    "code": "def status(code):\n    if code == 200:\n        return \"ok\"\n    elif code == 200:\n        return \"ok\"\n    return \"error\"\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-PY-QUAL-001",
+      "category": "QUALITY",
+      "severity": "LOW",
+      "file_path": "sample.py",
+      "start_line": 4,
+      "end_line": 5,
+      "description": "Duplicated and unreachable condition branch"
+    }
+  ],
+  "notes": "Dead branch after an identical condition."
+}

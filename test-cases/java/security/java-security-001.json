@@ -1,0 +1,21 @@
+{
+  "case_id": "java-security-001",
+  "language": "java",
+  "category": "SECURITY",
+  "source": {
+    "file_path": "Sample.java",
+    "code": "class Sample {\n    String query(String name) {\n        return \"SELECT * FROM users WHERE name = '\" + name + \"'\";\n    }\n}\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-JAVA-SEC-001",
+      "category": "SECURITY",
+      "severity": "CRITICAL",
+      "file_path": "Sample.java",
+      "start_line": 3,
+      "end_line": 3,
+      "description": "SQL built by string concatenation"
+    }
+  ],
+  "notes": "Use PreparedStatement parameters."
+}

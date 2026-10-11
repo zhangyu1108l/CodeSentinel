@@ -1,0 +1,21 @@
+{
+  "case_id": "java-bug-001",
+  "language": "java",
+  "category": "BUG",
+  "source": {
+    "file_path": "Sample.java",
+    "code": "class Sample {\n    int length(String value) {\n        return value.length();\n    }\n}\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-JAVA-BUG-001",
+      "category": "BUG",
+      "severity": "HIGH",
+      "file_path": "Sample.java",
+      "start_line": 3,
+      "end_line": 3,
+      "description": "NullPointerException when value is null"
+    }
+  ],
+  "notes": "No null guard before the call."
+}

@@ -8,6 +8,7 @@ tool findings are never dropped for missing LLM style fields.
 from app.agents.context_payload import AgentContextPayload
 from app.agents.validator import (
     REASON_BLANK_EVIDENCE,
+    REASON_CATEGORY_NOT_PLANNED,
     REASON_DUPLICATE,
     REASON_INVALID_STATIC,
     REASON_LINE_RANGE,
@@ -289,3 +290,126 @@ class TestSummary:
         assert summary["unverified_reasons"] == {
             UNVERIFIED_NOT_IN_PAYLOAD: 1
         }
+
+
+class TestCategoryRestriction:
+    def setup_method(self):
+        self.validator = Validator()
+
+    def test_category_outside_the_planned_agents_is_dropped(self):
+        finding = make_finding(category=Category.SECURITY)
+
+        outcome = self.validator.validate(
+            make_payload(),
+            [finding],
+            [],
+            allowed_categories=[Category.BUG],
+        )
+
+        assert outcome.findings == []
+        assert outcome.dropped_findings == {
+            REASON_CATEGORY_NOT_PLANNED: 1
+        }
+
+    def test_category_check_is_opt_in(self):
+        finding = make_finding(category=Category.SECURITY)
+
+        outcome = self.validator.validate(
+            make_payload(), [finding], []
+        )
+
+        assert outcome.findings == [finding]
+
+
+class TestChangeAnchoring:
+    def setup_method(self):
+        self.validator = Validator()
+
+    def test_finding_on_changed_line_is_anchored(self):
+        outcome = self.validator.validate(
+            make_payload(),
+            [make_finding(start=5, end=6)],
+            [],
+            changed_ranges={"a.py": [(5, 10)]},
+        )
+
+        assert outcome.changed_line_anchored == 1
+        assert outcome.not_on_changed_lines == 0
+        assert outcome.anchor_unknown == 0
+
+    def test_finding_off_changed_lines_is_counted_not_dropped(self):
+        outcome = self.validator.validate(
+            make_payload(),
+            [make_finding(start=1, end=1)],
+            [],
+            changed_ranges={"a.py": [(5, 10)]},
+        )
+
+        assert outcome.findings != []
+        assert outcome.changed_line_anchored == 0
+        assert outcome.not_on_changed_lines == 1
+
+    def test_file_without_changed_lines_is_unknown(self):
+        outcome = self.validator.validate(
+            make_payload(),
+            [make_finding()],
+            [],
+            changed_ranges={"other.py": [(1, 2)]},
+        )
+
+        assert outcome.anchor_unknown == 1
+
+    def test_missing_changed_ranges_marks_everything_unknown(self):
+        outcome = self.validator.validate(
+            make_payload(), [make_finding()], []
+        )
+
+        assert outcome.anchor_unknown == 1
+        assert outcome.changed_line_anchored == 0
+
+    def test_static_findings_are_classified_too(self):
+        outcome = self.validator.validate(
+            make_payload(),
+            [],
+            [make_static(start=5, end=5)],
+            changed_ranges={"a.py": [(5, 10)]},
+        )
+
+        assert outcome.static_changed_line_anchored == 1
+        assert outcome.static_anchor_unknown == 0
+
+    def test_summary_reports_anchor_counts(self):
+        outcome = self.validator.validate(
+            make_payload(),
+            [make_finding(start=5, end=6)],
+            [],
+            changed_ranges={"a.py": [(5, 10)]},
+        )
+
+        summary = outcome.summary()
+        assert summary["changed_line_anchored"] == 1
+        assert "static_changed_line_anchored" in summary
+
+
+class TestNoOutputPromotion:
+    def test_validator_never_rewrites_confidence_or_severity(self):
+        finding = make_finding()
+        before = finding.model_dump()
+
+        outcome = Validator().validate(
+            make_payload(), [finding], []
+        )
+
+        assert outcome.findings == [finding]
+        assert outcome.findings[0].confidence == 0.5
+        assert outcome.findings[0].severity is Severity.HIGH
+        assert outcome.findings[0].model_dump() == before
+
+    def test_static_finding_keeps_its_severity(self):
+        finding = make_static()
+
+        outcome = Validator().validate(
+            make_payload(), [], [finding]
+        )
+
+        assert outcome.static_findings[0].severity is Severity.INFO

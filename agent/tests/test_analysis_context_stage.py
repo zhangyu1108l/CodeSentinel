@@ -202,6 +202,26 @@ class TestContextLoading:
         assert result.static_report["available"] is True
         assert result.static_report["tools_run"] == ["RUFF"]
 
+    def test_changed_ranges_are_exposed_for_validation(self):
+        stage = AnalysisContextStage(
+            pr_context_client=FakeContextClient()
+        )
+
+        result = prepare(stage)
+
+        assert (1, 1) in result.changed_ranges["pkg/mod.py"]
+
+    def test_degraded_context_has_no_changed_ranges(self):
+        stage = AnalysisContextStage(
+            pr_context_client=FakeContextClient(
+                error=RuntimeError("no context")
+            )
+        )
+
+        result = prepare(stage)
+
+        assert result.changed_ranges == {}
+
     def test_static_service_receives_content_and_shared_budget(self):
         static = FakeStaticService()
         stage = AnalysisContextStage(

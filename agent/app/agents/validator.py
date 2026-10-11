@@ -35,6 +35,7 @@ from app.schemas.static_analysis import (
 logger = logging.getLogger("codesentinel-ai.validator")
 
 REASON_NO_CONTEXT = "no_context"
+REASON_CATEGORY_NOT_PLANNED = "category_not_planned"
 REASON_PATH_NOT_ALLOWED = "path_not_allowed"
 REASON_LINE_RANGE = "line_range_out_of_bounds"
 REASON_BLANK_EVIDENCE = "blank_evidence"
@@ -46,7 +47,15 @@ UNVERIFIED_NO_PAYLOAD = "payload_unavailable"
 
 
 class ValidationOutcome(BaseModel):
-    """Kept findings plus the deterministic drop reason counts."""
+    """Kept findings plus the deterministic drop reason counts.
+
+    changed_line_* / not_on_changed_lines / anchor_unknown classify the
+    kept findings against the diff changed lines when that information is
+    available; they are measurements, not filters: a finding off the
+    changed lines is still a valid finding, it is only not anchored to
+    the diff. anchor_unknown means no changed-line information existed
+    for the file.
+    """
 
     findings: list[ReviewFinding] = Field(default_factory=list)
     static_findings: list[StaticAnalysisFinding] = Field(
@@ -58,6 +67,12 @@ class ValidationOutcome(BaseModel):
     dropped_static: dict[str, int] = Field(default_factory=dict)
     static_unverified: int = Field(default=0, ge=0)
     unverified_reasons: dict[str, int] = Field(default_factory=dict)
+    changed_line_anchored: int = Field(default=0, ge=0)
+    not_on_changed_lines: int = Field(default=0, ge=0)
+    anchor_unknown: int = Field(default=0, ge=0)
+    static_changed_line_anchored: int = Field(default=0, ge=0)
+    static_not_on_changed_lines: int = Field(default=0, ge=0)
+    static_anchor_unknown: int = Field(default=0, ge=0)
 
     def summary(self) -> dict:
         """Small, log safe validation summary (counts and reason codes)."""
@@ -70,6 +85,16 @@ class ValidationOutcome(BaseModel):
             "static_dropped": dict(self.dropped_static),
             "static_unverified": self.static_unverified,
             "unverified_reasons": dict(self.unverified_reasons),
+            "changed_line_anchored": self.changed_line_anchored,
+            "not_on_changed_lines": self.not_on_changed_lines,
+            "anchor_unknown": self.anchor_unknown,
+            "static_changed_line_anchored": (
+                self.static_changed_line_anchored
+            ),
+            "static_not_on_changed_lines": (
+                self.static_not_on_changed_lines
+            ),
+            "static_anchor_unknown": self.static_anchor_unknown,
         }
 
 
@@ -81,11 +106,49 @@ class Validator:
         payload: AgentContextPayload | None,
         agent_findings: list[ReviewFinding],
         static_findings: list[StaticAnalysisFinding],
+        allowed_categories=None,
+        changed_ranges=None,
     ) -> ValidationOutcome:
-        """Return the kept findings and the drop reason counts."""
-        findings, dropped = _validate_agent_findings(payload, agent_findings)
+        """Return the kept findings and the drop reason counts.
+
+        allowed_categories optionally restricts findings to the categories
+        of the agents that actually ran in this pipeline. changed_ranges
+        optionally classifies kept findings against the diff changed lines
+        (path -> list of inclusive ranges); classification is reported,
+        never used to drop findings. Confidence and severity are never
+        rewritten: the validator does not promote model output.
+        """
+        findings, dropped = _validate_agent_findings(
+            payload, agent_findings, allowed_categories
+        )
         statics, dropped_static, unverified, unverified_reasons = (
             _validate_static_findings(payload, static_findings)
+        )
+        anchored, not_on_changed, unknown = _anchor_counts(
+            [
+                (
+                    finding.file_path,
+                    finding.start_line,
+                    finding.end_line,
+                )
+                for finding in findings
+            ],
+            changed_ranges,
+        )
+        (
+            static_anchored,
+            static_not_on_changed,
+            static_unknown,
+        ) = _anchor_counts(
+            [
+                (
+                    finding.file_path,
+                    finding.start_line,
+                    finding.end_line,
+                )
+                for finding in statics
+            ],
+            changed_ranges,
         )
         outcome = ValidationOutcome(
             findings=findings,
@@ -96,6 +159,12 @@ class Validator:
             dropped_static=dropped_static,
             static_unverified=unverified,
             unverified_reasons=unverified_reasons,
+            changed_line_anchored=anchored,
+            not_on_changed_lines=not_on_changed,
+            anchor_unknown=unknown,
+            static_changed_line_anchored=static_anchored,
+            static_not_on_changed_lines=static_not_on_changed,
+            static_anchor_unknown=static_unknown,
         )
         logger.info(
             "Validation finished: agent kept=%d dropped=%d, static kept=%d "
@@ -112,6 +181,7 @@ class Validator:
 def _validate_agent_findings(
     payload: AgentContextPayload | None,
     findings: list[ReviewFinding],
+    allowed_categories=None,
 ) -> tuple[list[ReviewFinding], dict[str, int]]:
     dropped: dict[str, int] = {}
     if payload is None or not payload.available:
@@ -122,7 +192,9 @@ def _validate_agent_findings(
     kept: list[ReviewFinding] = []
     seen: set[tuple] = set()
     for finding in findings:
-        reason = _agent_drop_reason(finding, payload, seen)
+        reason = _agent_drop_reason(
+            finding, payload, seen, allowed_categories
+        )
         if reason is not None:
             dropped[reason] = dropped.get(reason, 0) + 1
             continue
@@ -135,7 +207,13 @@ def _agent_drop_reason(
     finding: ReviewFinding,
     payload: AgentContextPayload,
     seen: set[tuple],
+    allowed_categories=None,
 ) -> str | None:
+    if (
+        allowed_categories is not None
+        and finding.category not in allowed_categories
+    ):
+        return REASON_CATEGORY_NOT_PLANNED
     if not all(
         getattr(finding, field).strip() for field in EVIDENCE_FIELDS
     ):
@@ -231,3 +309,37 @@ def _static_verification(
         for start, end in ranges
     )
     return None if inside else UNVERIFIED_NOT_IN_PAYLOAD
+
+
+def _anchor_counts(
+    entries: list[tuple[str, int, int]],
+    changed_ranges,
+) -> tuple[int, int, int]:
+    """Classify findings against the diff changed lines (measurement only).
+
+    Returns (anchored, not_on_changed_lines, anchor_unknown). A finding
+    whose range intersects a changed range of its file is anchored; a
+    finding whose file has changed ranges but no intersection is counted
+    as not_on_changed_lines; a file without changed-line information
+    (including no changed_ranges at all) counts as anchor_unknown. The
+    classification never drops or rewrites a finding.
+    """
+    if not changed_ranges:
+        return 0, 0, len(entries)
+    anchored = 0
+    not_on_changed = 0
+    unknown = 0
+    for file_path, start_line, end_line in entries:
+        ranges = changed_ranges.get(file_path)
+        if not ranges:
+            unknown += 1
+            continue
+        intersects = any(
+            range_start <= end_line and start_line <= range_end
+            for range_start, range_end in ranges
+        )
+        if intersects:
+            anchored += 1
+        else:
+            not_on_changed += 1
+    return anchored, not_on_changed, unknown

@@ -341,6 +341,7 @@ def _build_context_node(context_stage: AnalysisContextStage):
             "context_report": result.context_report,
             "static_report": result.static_report,
             "static_findings": list(result.static_findings),
+            "changed_ranges": dict(result.changed_ranges),
             "status": status,
             "error": None,
             "completed_nodes": _completed_with(state, CONTEXT_NODE),
@@ -360,6 +361,7 @@ def _context_degraded_state(
             REASON_CONTEXT_UNAVAILABLE, degraded=True
         ),
         "static_findings": [],
+        "changed_ranges": {},
         "status": RECOVERABLE,
         "error": reason,
         "completed_nodes": _completed_with(state, CONTEXT_NODE),
@@ -457,11 +459,18 @@ def _agent_failed_state(
 
 def _build_validator_node(validator: Validator):
     async def validator_node(state: AnalysisGraphState) -> AnalysisGraphState:
+        planned_categories = [
+            AGENT_CATEGORIES[node_id]
+            for node_id in state.get("planned_nodes", [])
+            if node_id in AGENT_CATEGORIES
+        ]
         try:
             outcome = validator.validate(
                 state.get("payload"),
                 list(state.get("findings", [])),
                 list(state.get("static_findings", [])),
+                allowed_categories=planned_categories,
+                changed_ranges=state.get("changed_ranges") or {},
             )
         except Exception as error:
             name = type(error).__name__
@@ -642,6 +651,7 @@ class AnalysisWorkflow:
                 "context_report": None,
                 "static_report": None,
                 "static_findings": [],
+                "changed_ranges": {},
                 "validated_findings": [],
                 "validated_static": [],
                 "validation_summary": None,

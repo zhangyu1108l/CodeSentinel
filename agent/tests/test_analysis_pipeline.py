@@ -112,6 +112,7 @@ class FakeContextStage:
         context_report=None,
         static_report=None,
         static_findings=None,
+        changed_ranges=None,
     ):
         self.payload = payload if payload is not None else make_payload()
         self.context_report = context_report or {
@@ -131,6 +132,7 @@ class FakeContextStage:
             "findings": 0,
         }
         self.static_findings = list(static_findings or [])
+        self.changed_ranges = dict(changed_ranges or {})
 
     async def prepare(self, request, budget):
         return ContextStageResult(
@@ -138,6 +140,7 @@ class FakeContextStage:
             context_report=dict(self.context_report),
             static_report=dict(self.static_report),
             static_findings=list(self.static_findings),
+            changed_ranges=dict(self.changed_ranges),
         )
 
 STATIC_FINDING = StaticAnalysisFinding(
@@ -186,10 +189,10 @@ class CountingValidator:
         self._validator = Validator()
         self.calls = 0
 
-    def validate(self, payload, findings, static_findings):
+    def validate(self, payload, findings, static_findings, **kwargs):
         self.calls += 1
         return self._validator.validate(
-            payload, findings, static_findings
+            payload, findings, static_findings, **kwargs
         )
 
 
@@ -197,7 +200,7 @@ class FailingValidator:
     def __init__(self):
         self.calls = 0
 
-    def validate(self, payload, findings, static_findings):
+    def validate(self, payload, findings, static_findings, **kwargs):
         self.calls += 1
         raise ValueError("boom")
 
@@ -385,6 +388,59 @@ class TestFullPipeline:
         assert result.report.status == "COMPLETED"
         assert result.report.severity_counts["HIGH"] == 0
 
+    def test_findings_are_classified_against_changed_lines(self):
+        stage = FakeContextStage(changed_ranges={"a.py": [(1, 1)]})
+        workflow = build_workflow(
+            planner=FakePlanner(make_plan(Category.BUG)),
+            agents={BUG_NODE: FakeFindingAgent([make_finding()])},
+            context_stage=stage,
+        )
+
+        result = asyncio.run(workflow.run(make_request()))
+
+        validation = result.report.validation
+        assert validation["changed_line_anchored"] == 1
+        assert validation["not_on_changed_lines"] == 0
+
+    def test_off_diff_finding_is_counted_but_kept(self):
+        stage = FakeContextStage(changed_ranges={"a.py": [(50, 60)]})
+        workflow = build_workflow(
+            planner=FakePlanner(make_plan(Category.BUG)),
+            agents={BUG_NODE: FakeFindingAgent([make_finding()])},
+            context_stage=stage,
+        )
+
+        result = asyncio.run(workflow.run(make_request()))
+
+        assert result.report.finding_count == 1
+        assert (
+            result.report.validation["not_on_changed_lines"] == 1
+        )
+
+    def test_static_degradation_does_not_stop_the_agents(self):
+        stage = FakeContextStage(
+            static_report={
+                "available": True,
+                "degraded": True,
+                "reason": None,
+                "tools_run": ["RUFF"],
+                "failed_tools": ["BANDIT"],
+                "findings": 0,
+            }
+        )
+        workflow = build_workflow(
+            planner=FakePlanner(make_plan(Category.BUG)),
+            agents={BUG_NODE: FakeFindingAgent([make_finding()])},
+            context_stage=stage,
+        )
+
+        result = asyncio.run(workflow.run(make_request()))
+
+        assert result.report.finding_count == 1
+        assert result.report.degraded is True
+        assert result.report.static_analysis["degraded"] is True
+        assert result.report.executed_agents == [Category.BUG]
+
 
 class TestProductionSwitchGuard:
     def test_router_does_not_use_the_analysis_workflow(self):
@@ -403,3 +459,97 @@ class TestProductionSwitchGuard:
         import app.services.review_service as review_service
 
         assert not hasattr(review_service, "AnalysisWorkflow")
+
+    def test_review_route_response_model_is_the_review_contract(self):
+        from app.main import app as fastapi_app
+
+        schema = fastapi_app.openapi()
+        operation = schema["paths"]["/api/reviews"]["post"]
+
+        success = operation["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        assert success["$ref"].endswith("/ReviewTaskResult")
+
+        request = operation["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        assert request["$ref"].endswith("/ReviewTaskRequest")
+
+    def test_request_never_constructs_or_runs_analysis_machinery(
+        self, monkeypatch
+    ):
+        """The strongest guard: a real request must not reach the pipeline.
+
+        AnalysisWorkflow construction/run, PlannerAgent.plan and
+        FindingAgent.analyze all raise if invoked; a successful request
+        with exactly one ReviewService.review call proves the production
+        route only uses the existing review chain (no duplicate LLM).
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from fastapi.testclient import TestClient
+
+        from app.agents import finding_agent, planner
+        from app.api.review_router import get_review_service
+        from app.graph import analysis_workflow
+        from app.graph.analysis_context import AnalysisContextStage
+        from app.main import app as fastapi_app
+        from app.schemas.review import ReviewTaskResult
+
+        async def must_not_run(*args, **kwargs):
+            raise AssertionError(
+                "analysis machinery must not run on /api/reviews"
+            )
+
+        def must_not_construct(*args, **kwargs):
+            raise AssertionError(
+                "AnalysisWorkflow must not be constructed on /api/reviews"
+            )
+
+        monkeypatch.setattr(
+            analysis_workflow.AnalysisWorkflow,
+            "__init__",
+            must_not_construct,
+        )
+        monkeypatch.setattr(
+            analysis_workflow.AnalysisWorkflow, "run", must_not_run
+        )
+        monkeypatch.setattr(planner.PlannerAgent, "plan", must_not_run)
+        monkeypatch.setattr(
+            finding_agent.FindingAgent, "analyze", must_not_run
+        )
+        monkeypatch.setattr(
+            AnalysisContextStage, "prepare", must_not_run
+        )
+
+        service = MagicMock()
+        service.review = AsyncMock(
+            return_value=ReviewTaskResult(
+                task_id=1,
+                status="COMPLETED",
+                report={"summary": "ok", "total_findings": 0},
+                findings=[],
+            )
+        )
+        fastapi_app.dependency_overrides[get_review_service] = (
+            lambda: service
+        )
+        client = TestClient(fastapi_app, raise_server_exceptions=False)
+        try:
+            response = client.post(
+                "/api/reviews",
+                json={
+                    "task_id": 1,
+                    "repository": "owner/repo",
+                    "pr_number": 42,
+                    "commit_sha": "abc123",
+                    "files": [],
+                },
+            )
+        finally:
+            fastapi_app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "COMPLETED"
+        assert service.review.await_count == 1
