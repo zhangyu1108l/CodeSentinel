@@ -2002,6 +2002,27 @@ Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.9 完成并已提交推�
 Phase 8 后续：提交前复核（需用户批准）→ 真实工具/LLM 联调（opt-in 已就绪）→ 评测集回放 → 契约映射接入路由的替换式改造（需单独批准）
 ```
 
+### 2026-10-11 (11)
+
+Phase 8.9 最终验证（commit `7838562`，已推送；PR #6 head 已更新）。
+
+- [x] 默认全量测试（离线安全：live DeepSeek / 静态工具全部 opt-in 跳过，出站网络默认阻断）：`PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider`（agent/ 全量）→ **2698 passed / 8 skipped / 1 warning**（8.8 阶段基线 2674 passed / 8 skipped）；跳过明细 = 2 symlink（环境）+ 2 DeepSeek live（开关关）+ 4 静态工具 live（开关关/工具不在 PATH）
+- [x] `7838562`（`test: verify deadline-capped subprocess execution`：T1 真实子进程测试 + 常量注释 + 文档状态同步）推送成功，远端分支 HEAD 与本地一致
+- [x] PR #6 状态：OPEN / MERGEABLE / `mergeStateStatus=CLEAN`，head `7838562`，19 commits，base `main`；**仓库未配置 CI**（无 `.github/workflows`，`gh pr checks` 无检查项）；暂无审查意见
+- [x] 未验证项不变（不夸大）：真实静态工具与真实 DeepSeek 未运行；11s/12s 病态边界、Windows 孤儿进程、"20s 仅为配置差额"均为已记录、未实测项
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent 🟡 进行中（8.1~8.9 完成并已提交推送（HEAD `7838562`）；最终全量 2698 passed / 8 skipped；生产路径未切换）
+```
+
+下一步（需用户决策）：
+
+```text
+PR #6 评审 / 合并（需明确授权）→ Phase 9 按 AGENTS §30.1 从 main 创建新分支；或（单独授权后）运行评测回放（真实 LLM 调用，产生费用）取得 Precision / Recall
+```
+
 ### 2026-10-10
 
 Phase 7.1（统一静态分析数据结构）完成，待验收。
