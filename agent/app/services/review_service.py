@@ -14,12 +14,22 @@ context is unavailable, so the Phase 4 retry chain stays reserved for
 real review failures such as LLM errors, which keep propagating
 unchanged. When no context client is configured the Phase 5 prompt is
 kept as is.
+
+Every review also runs under one total request budget (Phase 8 timeout
+governance): the context fetch is capped by both the local PR context
+timeout and the remaining budget, and the LLM call may only use what the
+budget has left. Running out of budget before or during the LLM call
+raises ReviewBudgetExceededError, so an unfinished review can never be
+reported as a success.
 """
 
+import asyncio
 import logging
+import math
 
 import httpx
 
+from app.config.settings import settings
 from app.context.code_context_builder import CodeContextBuilder
 from app.context.context_size_controller import (
     DEFAULT_BUDGET,
@@ -32,12 +42,17 @@ from app.llm.llm_service import LLMService
 from app.prompts.review import build_messages
 from app.schemas.code_context import CodeContext, ContextBudget
 from app.schemas.review import ReviewTaskRequest, ReviewTaskResult
+from app.services.request_budget import (
+    RequestBudget,
+    ReviewBudgetExceededError,
+)
 
 logger = logging.getLogger("codesentinel-ai.review_service")
 
 STATUS_COMPLETED = "COMPLETED"
 STATUS_DEGRADED = "DEGRADED"
 REASON_NOT_CONFIGURED = "not_configured"
+REASON_BUDGET_EXHAUSTED = "budget_exhausted"
 
 
 class ReviewService:
@@ -46,7 +61,10 @@ class ReviewService:
     pr_context_client may be None, in which case context loading is
     disabled and the Phase 5 behaviour is kept (status COMPLETED, report
     context marked not_configured). context_budget defaults to the Phase
-    6.6 DEFAULT_BUDGET; passing None uses that default.
+    6.6 DEFAULT_BUDGET; passing None uses that default. request_budget
+    seconds defaults to settings.REVIEW_TOTAL_BUDGET and
+    context_timeout_seconds to settings.PR_CONTEXT_TIMEOUT; both may be
+    injected for tests.
     """
 
     def __init__(
@@ -55,11 +73,29 @@ class ReviewService:
         pr_context_client: PrContextClient = None,
         context_builder: CodeContextBuilder = None,
         context_budget: ContextBudget = None,
+        request_budget_seconds: float = None,
+        context_timeout_seconds: float = None,
     ):
         self.llm_service = llm_service or LLMService()
         self.pr_context_client = pr_context_client
         self.context_builder = context_builder or CodeContextBuilder()
         self.context_budget = context_budget
+        self._request_budget_seconds = _positive_seconds(
+            (
+                settings.REVIEW_TOTAL_BUDGET
+                if request_budget_seconds is None
+                else request_budget_seconds
+            ),
+            "request_budget_seconds",
+        )
+        self._context_timeout_seconds = _positive_seconds(
+            (
+                settings.PR_CONTEXT_TIMEOUT
+                if context_timeout_seconds is None
+                else context_timeout_seconds
+            ),
+            "context_timeout_seconds",
+        )
 
     async def review(self, request: ReviewTaskRequest) -> ReviewTaskResult:
         logger.info(
@@ -70,7 +106,8 @@ class ReviewService:
             request.commit_sha,
         )
 
-        context, context_report = await self._load_context(request)
+        budget = RequestBudget(self._request_budget_seconds)
+        context, context_report = await self._load_context(request, budget)
 
         messages = build_messages(
             request, context=context, context_report=context_report
@@ -81,7 +118,32 @@ class ReviewService:
             len(messages),
             sum(len(message["content"]) for message in messages),
         )
-        findings = await self.llm_service.generate_findings(messages)
+
+        logger.debug(
+            "Review budget for task %d: total=%.1fs remaining=%.3fs",
+            request.task_id,
+            budget.seconds,
+            budget.remaining(),
+        )
+        if budget.expired():
+            raise ReviewBudgetExceededError(
+                "Review budget of "
+                f"{budget.seconds:g}s exhausted before LLM analysis "
+                f"(task {request.task_id})"
+            )
+        try:
+            async with asyncio.timeout(budget.remaining()):
+                findings = await self.llm_service.generate_findings(
+                    messages
+                )
+        except TimeoutError as error:
+            if budget.expired():
+                raise ReviewBudgetExceededError(
+                    "Review budget of "
+                    f"{budget.seconds:g}s exhausted during LLM analysis "
+                    f"(task {request.task_id})"
+                ) from error
+            raise
 
         degraded = context_report["degraded"]
         if degraded:
@@ -118,7 +180,7 @@ class ReviewService:
         return result
 
     async def _load_context(
-        self, request: ReviewTaskRequest
+        self, request: ReviewTaskRequest, budget: RequestBudget
     ) -> tuple[CodeContext | None, dict]:
         """Fetch, assemble and budget the PR context, or degrade.
 
@@ -129,6 +191,11 @@ class ReviewService:
         404, a contract mismatch or a network error. The reason is logged
         (WARNING) and recorded in the report; the exception detail is kept
         at DEBUG only.
+
+        The fetch is capped by both the local PR context timeout and the
+        remaining request budget, so a slow context stage can never use up
+        more than its share; a timeout here degrades like any other
+        context failure.
         """
         if self.pr_context_client is None:
             return None, {
@@ -136,9 +203,24 @@ class ReviewService:
                 "degraded": False,
                 "reason": REASON_NOT_CONFIGURED,
             }
+        if budget.expired():
+            logger.warning(
+                "PR context skipped for task %d: request budget exhausted",
+                request.task_id,
+            )
+            return None, {
+                "available": False,
+                "degraded": True,
+                "reason": REASON_BUDGET_EXHAUSTED,
+            }
 
         try:
-            pr_context = await self.pr_context_client.fetch(request.task_id)
+            async with asyncio.timeout(
+                budget.limit(self._context_timeout_seconds)
+            ):
+                pr_context = await self.pr_context_client.fetch(
+                    request.task_id
+                )
             context = self.context_builder.build(pr_context)
             context = self._apply_context_budget(context)
             summary = self._context_summary(context)
@@ -219,3 +301,15 @@ def _failure_reason(error: Exception) -> str:
     if isinstance(error, httpx.HTTPStatusError):
         return f"http_error:{error.response.status_code}"
     return type(error).__name__
+
+
+def _positive_seconds(value: float, name: str) -> float:
+    """Validate a positive finite timeout from settings or a test."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{name} must be a positive finite number")
+    return float(value)
