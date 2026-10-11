@@ -87,17 +87,13 @@ def make_agent(findings=None, error=None):
 
 
 class TestFindingAgent:
-    def test_only_bug_category_is_implemented(self):
-        assert IMPLEMENTED_AGENT_CATEGORIES == frozenset({Category.BUG})
+    def test_all_planner_categories_are_implemented(self):
+        assert IMPLEMENTED_AGENT_CATEGORIES == frozenset(Category)
 
-    def test_unimplemented_categories_are_rejected(self):
-        for category in (
-            Category.SECURITY,
-            Category.PERFORMANCE,
-            Category.QUALITY,
-        ):
-            with pytest.raises(ValueError):
-                FindingAgent(category)
+    def test_every_dimension_can_be_instantiated(self):
+        for category in Category:
+            agent = FindingAgent(category)
+            assert agent.category is category
 
     def test_without_context_skips_llm_and_returns_empty(self):
         agent, llm = make_agent(findings=[make_finding()])

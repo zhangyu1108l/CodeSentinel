@@ -81,12 +81,13 @@ class StaticAnalysisErrorCode(str, Enum):
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 
 
-def _is_repo_relative_path(path: str) -> bool:
+def is_repo_relative_path(path: str) -> bool:
     """Whether path is a non-empty repository relative file path.
 
     Rejects surrounding whitespace, absolute POSIX and UNC paths, Windows
     drive paths (C:...) and any '..' traversal segment on either
-    separator.
+    separator. Public since Phase 8.7: shared by the static analysis
+    contract and the unified analysis report contract.
     """
     if not path or not path.strip() or path != path.strip():
         return False
@@ -125,7 +126,7 @@ class StaticAnalysisFinding(BaseModel):
     @field_validator("file_path")
     @classmethod
     def _reject_non_relative(cls, value: str) -> str:
-        if not _is_repo_relative_path(value):
+        if not is_repo_relative_path(value):
             raise ValueError(
                 "file_path must be a non-empty repository relative path"
             )

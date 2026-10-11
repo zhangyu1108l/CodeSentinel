@@ -9,6 +9,8 @@ Analyse the pull request in the user message and report findings of the
 "{category}" category only. You MUST respond with a single valid JSON
 object and nothing else. Do not wrap the output in markdown code fences.
 
+Focus of the "{category}" dimension: {guidance}
+
 The response format is:
 
 {{
@@ -44,6 +46,29 @@ Rules:
 """
 
 
+_CATEGORY_GUIDANCE = {
+    Category.BUG: (
+        "logic errors, null and boundary handling, resource leaks, "
+        "incorrect state changes, error paths that silently swallow "
+        "failures."
+    ),
+    Category.SECURITY: (
+        "injection (SQL, command, path), missing authentication or "
+        "authorization checks, unsafe deserialization, hardcoded secrets, "
+        "sensitive data exposure."
+    ),
+    Category.PERFORMANCE: (
+        "N+1 queries, repeated or redundant work inside loops, unbounded "
+        "collection growth, blocking calls on hot paths, unnecessary "
+        "allocations."
+    ),
+    Category.QUALITY: (
+        "naming, duplication, dead code, readability, maintainability, "
+        "misleading comments or structure."
+    ),
+}
+
+
 def build_finding_agent_messages(
     request: ReviewTaskRequest,
     category: Category,
@@ -76,7 +101,8 @@ def build_finding_agent_messages(
         {
             "role": "system",
             "content": _AGENT_SYSTEM_TEMPLATE.format(
-                category=category.value
+                category=category.value,
+                guidance=_CATEGORY_GUIDANCE[category],
             ),
         },
         {"role": "user", "content": header + body},

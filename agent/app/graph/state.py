@@ -20,14 +20,17 @@ Status contract:
 from enum import Enum
 from typing import TypedDict
 
+from app.agents.context_payload import AgentContextPayload
 from app.graph.budget import ReviewBudgetContext
 from app.schemas.plan import AnalysisPlan
+from app.schemas.report import AnalysisReport
 from app.schemas.review import (
     Category,
     ReviewFinding,
     ReviewTaskRequest,
     ReviewTaskResult,
 )
+from app.schemas.static_analysis import StaticAnalysisFinding
 
 
 class ReviewGraphStatus(str, Enum):
@@ -64,16 +67,35 @@ class ReviewGraphState(TypedDict, total=False):
 
 
 class AnalysisGraphState(ReviewGraphState, total=False):
-    """State of the planner driven analysis workflow (Phase 8.3).
+    """State of the planner driven analysis workflow (Phase 8.7).
 
     plan: the whitelist constrained AnalysisPlan produced by the planner.
-    findings: ReviewFinding values accumulated by the analysis nodes.
-    skipped_agents: planned categories without an implementation.
+    findings: raw ReviewFinding values accumulated by the analysis nodes.
+    skipped_agents: planned categories without a runnable node.
     recoverable_errors: exception type names of failed analysis nodes
         that did not stop the workflow (their remaining nodes may run).
+    payload: the bounded agent context payload built by the context node.
+    context_report: safe status summary of the context load.
+    static_report: safe status summary of the static analysis stage.
+    static_findings: raw static findings kept for the validator.
+    validated_findings / validated_static: outputs of the validator,
+        consumed by the reporter (no unvalidated finding is reported).
+    validation_summary: safe validation counters / reason codes.
+    executed_agents / failed_agents: per dimension node outcomes.
+    report: the final AnalysisReport produced by the reporter node.
     """
 
     plan: AnalysisPlan | None
     findings: list[ReviewFinding]
     skipped_agents: list[Category]
     recoverable_errors: list[str]
+    payload: AgentContextPayload | None
+    context_report: dict | None
+    static_report: dict | None
+    static_findings: list[StaticAnalysisFinding]
+    validated_findings: list[ReviewFinding]
+    validated_static: list[StaticAnalysisFinding]
+    validation_summary: dict | None
+    executed_agents: list[Category]
+    failed_agents: list[Category]
+    report: AnalysisReport | None

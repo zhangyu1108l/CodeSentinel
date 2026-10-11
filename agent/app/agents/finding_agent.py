@@ -1,9 +1,10 @@
-"""Dimension specific finding agent (Phase 8.3/8.4).
+"""Dimension specific finding agent (Phase 8.3/8.4/8.7).
 
 Only categories listed in IMPLEMENTED_AGENT_CATEGORIES may be
-instantiated. The planner whitelist is the full Category enum; a planned
-agent without an implementation is recorded as skipped by the workflow
-instead of being faked.
+instantiated; since Phase 8.7 that is every dimension the planner can
+plan (BUG, SECURITY, PERFORMANCE, QUALITY). A planned agent without an
+implementation is recorded as skipped by the workflow instead of being
+faked.
 
 Phase 8.4 adds the verified context loop: the agent runs only when a
 usable AgentContextPayload exists (no context means no LLM call and an
@@ -30,9 +31,16 @@ from app.schemas.review import Category, ReviewFinding, ReviewTaskRequest
 
 logger = logging.getLogger("codesentinel-ai.finding_agent")
 
-IMPLEMENTED_AGENT_CATEGORIES = frozenset({Category.BUG})
+IMPLEMENTED_AGENT_CATEGORIES = frozenset(
+    {
+        Category.BUG,
+        Category.SECURITY,
+        Category.PERFORMANCE,
+        Category.QUALITY,
+    }
+)
 
-_EVIDENCE_FIELDS = (
+EVIDENCE_FIELDS = (
     "title",
     "rule_id",
     "description",
@@ -123,7 +131,7 @@ def _is_verified(
     ):
         return False
     return all(
-        getattr(finding, field).strip() for field in _EVIDENCE_FIELDS
+        getattr(finding, field).strip() for field in EVIDENCE_FIELDS
     )
 
 
