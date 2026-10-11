@@ -66,7 +66,9 @@ class ReviewService:
     6.6 DEFAULT_BUDGET; passing None uses that default. request_budget
     seconds defaults to settings.REVIEW_TOTAL_BUDGET and
     context_timeout_seconds to settings.PR_CONTEXT_TIMEOUT; both may be
-    injected for tests.
+    injected for tests. review() also accepts an optional RequestBudget:
+    a graph workflow injects its shared budget so every node uses the
+    remaining time of one review instead of a fresh deadline.
     """
 
     def __init__(
@@ -99,7 +101,11 @@ class ReviewService:
             "context_timeout_seconds",
         )
 
-    async def review(self, request: ReviewTaskRequest) -> ReviewTaskResult:
+    async def review(
+        self,
+        request: ReviewTaskRequest,
+        budget: RequestBudget = None,
+    ) -> ReviewTaskResult:
         logger.info(
             "Reviewing task %d: repository=%s, pr=%d, sha=%s",
             request.task_id,
@@ -108,7 +114,8 @@ class ReviewService:
             request.commit_sha,
         )
 
-        budget = RequestBudget(self._request_budget_seconds)
+        if budget is None:
+            budget = RequestBudget(self._request_budget_seconds)
         context, context_report = await self._load_context(request, budget)
 
         messages = build_messages(
