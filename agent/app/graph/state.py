@@ -21,7 +21,13 @@ from enum import Enum
 from typing import TypedDict
 
 from app.graph.budget import ReviewBudgetContext
-from app.schemas.review import ReviewTaskRequest, ReviewTaskResult
+from app.schemas.plan import AnalysisPlan
+from app.schemas.review import (
+    Category,
+    ReviewFinding,
+    ReviewTaskRequest,
+    ReviewTaskResult,
+)
 
 
 class ReviewGraphStatus(str, Enum):
@@ -55,3 +61,19 @@ class ReviewGraphState(TypedDict, total=False):
     error: str | None
     completed_nodes: list[str]
     planned_nodes: list[str]
+
+
+class AnalysisGraphState(ReviewGraphState, total=False):
+    """State of the planner driven analysis workflow (Phase 8.3).
+
+    plan: the whitelist constrained AnalysisPlan produced by the planner.
+    findings: ReviewFinding values accumulated by the analysis nodes.
+    skipped_agents: planned categories without an implementation.
+    recoverable_errors: exception type names of failed analysis nodes
+        that did not stop the workflow (their remaining nodes may run).
+    """
+
+    plan: AnalysisPlan | None
+    findings: list[ReviewFinding]
+    skipped_agents: list[Category]
+    recoverable_errors: list[str]
