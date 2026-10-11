@@ -371,7 +371,7 @@ CodeSentinel 项目文档职责保持清晰：
 
 - Phase 1 ~ Phase 6：已完成并合并 `main`
 - Phase 7：Static Analysis 已正式验收（2026-10-10），并通过 PR #5 合并 `main`（merge commit `d305b47`）
-- Phase 8：LangGraph Multi-Agent，进行中；基线分支 `feature/phase8-langgraph-multi-agent`（PR #6）；8.1~8.9 完成（最小图 → 共享预算上下文与状态/路由 → Planner 驱动分析工作流 → 有界上下文载荷与 Finding 验证 → 生产路径图工作流接线 → 静态分析工具接入生产 Review 流程（本机未安装工具，真实联调待环境就绪）→ 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合去重、Reporter、多节点预算分配）→ 生产切换前质量加固（live 测试 opt-in 与默认出站阻断、`AnalysisReport → ReviewTaskResult` 显式映射、状态语义表、Validator 锚定/类别校验、评测基础 test-cases 与指标、切换强守卫）→ 状态语义与执行预算治理（映射不完整→DEGRADED、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、共享 deadline 下的 11s 清理预留与 DeadlineCappedExecutor 封顶、settings 预留校验；**8.8/8.9 改动未提交**）；`langgraph==1.2.5`），见 `DEVELOPMENT_STATUS.md` 记录 2026-10-11 (4)~(10)
+- Phase 8：LangGraph Multi-Agent，进行中；基线分支 `feature/phase8-langgraph-multi-agent`（PR #6）；8.1~8.9 完成（最小图 → 共享预算上下文与状态/路由 → Planner 驱动分析工作流 → 有界上下文载荷与 Finding 验证 → 生产路径图工作流接线 → 静态分析工具接入生产 Review 流程（本机未安装工具，真实联调待环境就绪）→ 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合去重、Reporter、多节点预算分配）→ 生产切换前质量加固（live 测试 opt-in 与默认出站阻断、`AnalysisReport → ReviewTaskResult` 显式映射、状态语义表、Validator 锚定/类别校验、评测基础 test-cases 与指标、切换强守卫）→ 状态语义与执行预算治理（映射不完整→DEGRADED、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、共享 deadline 下的 11s 清理预留与 DeadlineCappedExecutor 封顶、settings 预留校验；**8.8/8.9 已提交并推送至当前功能分支（HEAD `cedca1c`），PR #6 OPEN 待审查**）；`langgraph==1.2.5`），见 `DEVELOPMENT_STATUS.md` 记录 2026-10-11 (4)~(10)
 
 ### Live 测试运行说明（Phase 8.8）
 

@@ -58,6 +58,17 @@ _READER_JOIN_TIMEOUT_SECONDS = 5.0
 # caller that shares one deadline with the tools must keep this much time
 # in reserve before waiting on (or starting) a subprocess, so that killing
 # and draining the process cannot outlive the shared deadline.
+#
+# Assumptions and limits (Phase 8.9 review):
+# - It assumes the killed child is reaped within the first grace wait in
+#   _terminate; if that wait times out, _terminate can consume a second
+#   grace wait, so the pathological cleanup path can take about 1s longer
+#   (a single call may return up to ~1s past deadline - reserve; this is
+#   not per tool and does not accumulate).
+# - It bounds how long the caller WAITS, not when orphan descendants
+#   eventually exit: on Windows only the direct child is killed, so a
+#   grandchild holding the pipes can outlive the reserve; the reader joins
+#   then time out and mark the capture truncated.
 PROCESS_CLEANUP_RESERVE_SECONDS = (
     _TERMINATE_GRACE_SECONDS + 2 * _READER_JOIN_TIMEOUT_SECONDS
 )

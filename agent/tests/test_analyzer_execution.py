@@ -8,6 +8,7 @@ untrusted code.
 import os
 import sys
 import tempfile
+import time
 
 import pytest
 from pydantic import ValidationError
@@ -522,6 +523,34 @@ class TestDeadlineCappedExecutor:
         assert result.status is ExecutionStatus.TIMEOUT
         assert result.error_code is StaticAnalysisErrorCode.TIMEOUT
         assert inner.requests == []
+
+    def test_wrapper_caps_real_process_wait(self):
+        """Wrapper + real SubprocessExecutor: the capped wait really ends.
+
+        remaining 1.5s - reserve 1.0s = 0.5s allowed, while the command
+        would sleep 30s. The lenient wall clock bound therefore proves both
+        the cap and that _terminate really killed the child (otherwise the
+        wait would have lasted the full sleep).
+        """
+        from app.analyzers.execution import DeadlineCappedExecutor
+
+        wrapper = DeadlineCappedExecutor(
+            SubprocessExecutor(),
+            remaining_seconds=lambda: 1.5,
+            reserve_seconds=1.0,
+        )
+        started = time.monotonic()
+        result = wrapper.execute(
+            CommandExecutionRequest(
+                command=python_command("import time; time.sleep(30)"),
+                timeout_seconds=60.0,
+            )
+        )
+        elapsed = time.monotonic() - started
+
+        assert result.status is ExecutionStatus.TIMEOUT
+        assert result.error_code is StaticAnalysisErrorCode.TIMEOUT
+        assert elapsed < 5.0
 
     def test_wrapper_validation(self):
         from app.analyzers.execution import DeadlineCappedExecutor
