@@ -443,3 +443,67 @@ class TestReviewServiceContext:
             ).review(make_request())
         )
         assert first == second
+
+
+SENTINEL_CONTEXT_INPUT = "SENTINEL-PR-CONTEXT-DO-NOT-LOG"
+
+
+def make_context_validation_error():
+    payload = {
+        "taskId": 7,
+        "owner": "owner",
+        "repo": "repo",
+        "prNumber": 42,
+        "commitSha": "abc123",
+        "files": [{"status": "modified", "content": SENTINEL_CONTEXT_INPUT}],
+    }
+    try:
+        PrContext.model_validate(payload)
+    except ValidationError as error:
+        return error
+    raise AssertionError("payload must fail PrContext validation")
+
+
+class SchemaFailingContext:
+    async def fetch(self, task_id):
+        raise make_context_validation_error()
+
+
+class BoomContext:
+    async def fetch(self, task_id):
+        raise RuntimeError("boom")
+
+
+class TestContextSchemaFailureLogging:
+    def test_debug_log_hides_schema_input(self, caplog):
+        service = ReviewService(
+            llm_service=make_llm(),
+            pr_context_client=SchemaFailingContext(),
+            request_budget_seconds=5,
+        )
+        with caplog.at_level(
+            "DEBUG", logger="codesentinel-ai.review_service"
+        ):
+            result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "DEGRADED"
+        assert result.report["context"]["reason"] == "ValidationError"
+        assert SENTINEL_CONTEXT_INPUT not in caplog.text
+        assert "input_value" not in caplog.text
+        assert "files.0.path" in caplog.text
+
+    def test_debug_log_keeps_traceback_for_other_failures(self, caplog):
+        service = ReviewService(
+            llm_service=make_llm(),
+            pr_context_client=BoomContext(),
+            request_budget_seconds=5,
+        )
+        with caplog.at_level(
+            "DEBUG", logger="codesentinel-ai.review_service"
+        ):
+            result = asyncio.run(service.review(make_request()))
+
+        assert result.status == "DEGRADED"
+        assert result.report["context"]["reason"] == "RuntimeError"
+        assert "Traceback" in caplog.text
+        assert SENTINEL_CONTEXT_INPUT not in caplog.text

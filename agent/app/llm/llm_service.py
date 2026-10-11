@@ -7,6 +7,7 @@ from app.llm.deepseek_client import DeepSeekClient
 from app.llm.exceptions import LLMResponseError
 from app.schemas.llm_output import LlmReviewOutput
 from app.schemas.review import ReviewFinding
+from app.schemas.validation import validation_error_summary
 
 logger = logging.getLogger("codesentinel-ai.llm_service")
 
@@ -34,11 +35,14 @@ class LLMService:
 
         try:
             output = LlmReviewOutput.model_validate(data)
-        except ValidationError as e:
-            logger.error("LLM output failed schema validation: %s", e)
+        except ValidationError as error:
+            summary = validation_error_summary(error)
+            logger.error(
+                "LLM output failed schema validation: %s", summary
+            )
             raise LLMResponseError(
-                f"LLM output failed schema validation: {e}"
-            ) from e
+                f"LLM output failed schema validation: {summary}"
+            ) from None
 
         logger.info("LLM generated %d findings", len(output.findings))
         return output.findings

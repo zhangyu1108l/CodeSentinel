@@ -1,11 +1,22 @@
 import logging
 
 import httpx
+from pydantic import ValidationError
 
 from app.config.settings import settings
 from app.schemas.review import ReviewTaskRequest, ReviewTaskResult
+from app.schemas.validation import validation_error_summary
 
 logger = logging.getLogger("codesentinel-ai.ai_client")
+
+
+class AiServiceResponseError(Exception):
+    """The AI service returned a review result that violates the schema.
+
+    Raised instead of re-raising the raw Pydantic ValidationError, whose
+    message embeds a preview of the response (which can contain findings
+    text). The generic message keeps the worker failure path stable.
+    """
 
 
 class AiServiceClient:
@@ -32,10 +43,28 @@ class AiServiceClient:
                 len(result.findings),
             )
             return result
-        except Exception as e:
+        except httpx.HTTPStatusError as error:
+            logger.error(
+                "Failed to request review for task %d from AI service: "
+                "http_status=%s",
+                request.task_id,
+                error.response.status_code,
+            )
+            raise
+        except ValidationError as error:
+            logger.error(
+                "Failed to request review for task %d from AI service: "
+                "invalid response schema (%s)",
+                request.task_id,
+                validation_error_summary(error),
+            )
+            raise AiServiceResponseError(
+                "AI service returned an invalid review result"
+            ) from None
+        except Exception as error:
             logger.error(
                 "Failed to request review for task %d from AI service: %s",
                 request.task_id,
-                e,
+                type(error).__name__,
             )
             raise

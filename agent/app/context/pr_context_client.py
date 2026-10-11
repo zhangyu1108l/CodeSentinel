@@ -11,9 +11,11 @@ content is never written to logs.
 import logging
 
 import httpx
+from pydantic import ValidationError
 
 from app.config.settings import settings
 from app.schemas.pr_context import PrContext
+from app.schemas.validation import validation_error_summary
 
 logger = logging.getLogger("codesentinel-ai.pr_context_client")
 
@@ -42,11 +44,27 @@ class PrContextClient:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 context = PrContext.model_validate(resp.json())
-        except Exception as e:
+        except httpx.HTTPStatusError as error:
+            logger.error(
+                "Failed to fetch PR context for task %d from Java service: "
+                "http_status=%s",
+                task_id,
+                error.response.status_code,
+            )
+            raise
+        except ValidationError as error:
+            logger.error(
+                "Failed to fetch PR context for task %d from Java service: "
+                "invalid response schema (%s)",
+                task_id,
+                validation_error_summary(error),
+            )
+            raise
+        except Exception as error:
             logger.error(
                 "Failed to fetch PR context for task %d from Java service: %s",
                 task_id,
-                e,
+                type(error).__name__,
             )
             raise
 

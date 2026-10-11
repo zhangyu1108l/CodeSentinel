@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Category(str, Enum):
@@ -42,6 +42,8 @@ class ReviewFinding(BaseModel):
 
 
 class ReviewTaskResult(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     task_id: int
     status: str
     report: dict

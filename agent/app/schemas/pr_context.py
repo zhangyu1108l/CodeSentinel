@@ -12,7 +12,7 @@ fetch_failed:<status>. An empty string content is a legitimate empty file
 and must not be confused with an unavailable one.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PrContextFile(BaseModel):
@@ -33,7 +33,14 @@ class PrContextFile(BaseModel):
 
 
 class PrContext(BaseModel):
-    """PR context payload for one review task."""
+    """PR context payload for one review task.
+
+    hide_input_in_errors is defense in depth: validation errors must not
+    embed Java response content (file paths and file content) in their
+    default display.
+    """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     taskId: int
     owner: str

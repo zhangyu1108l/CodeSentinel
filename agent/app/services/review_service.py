@@ -28,6 +28,7 @@ import logging
 import math
 
 import httpx
+from pydantic import ValidationError
 
 from app.config.settings import settings
 from app.context.code_context_builder import CodeContextBuilder
@@ -42,6 +43,7 @@ from app.llm.llm_service import LLMService
 from app.prompts.review import build_messages
 from app.schemas.code_context import CodeContext, ContextBudget
 from app.schemas.review import ReviewTaskRequest, ReviewTaskResult
+from app.schemas.validation import validation_error_summary
 from app.services.request_budget import (
     RequestBudget,
     ReviewBudgetExceededError,
@@ -232,11 +234,18 @@ class ReviewService:
                 request.task_id,
                 reason,
             )
-            logger.debug(
-                "PR context failure detail for task %d",
-                request.task_id,
-                exc_info=True,
-            )
+            if isinstance(error, ValidationError):
+                logger.debug(
+                    "PR context schema failure for task %d: %s",
+                    request.task_id,
+                    validation_error_summary(error),
+                )
+            else:
+                logger.debug(
+                    "PR context failure detail for task %d",
+                    request.task_id,
+                    exc_info=True,
+                )
             return None, {
                 "available": False,
                 "degraded": True,

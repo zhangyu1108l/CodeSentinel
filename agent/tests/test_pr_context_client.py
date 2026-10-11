@@ -224,3 +224,32 @@ class TestPrContextClient:
         # Only the documented GET endpoint may be called.
         asyncio.run(make_client().fetch(7))
         assert FakeAsyncClient.captured["url"].endswith("/pr-context")
+
+
+class TestSchemaFailureStaysInputFree:
+    SENTINEL = "SENTINEL-PR-CONTENT-DO-NOT-LOG"
+
+    def test_log_hides_file_content(self, mock_http, caplog):
+        payload = {
+            **JAVA_RESPONSE,
+            "files": [
+                {"status": "modified", "content": self.SENTINEL}
+            ],
+        }
+        mock_http.mock_get = AsyncMock(return_value=ok_response(payload))
+
+        with caplog.at_level(
+            "ERROR", logger="codesentinel-ai.pr_context_client"
+        ):
+            with pytest.raises(ValidationError):
+                asyncio.run(make_client().fetch(7))
+
+        log_text = "\n".join(
+            record.getMessage() for record in caplog.records
+        )
+        assert "Failed to fetch PR context for task 7" in log_text
+        assert "invalid response schema" in log_text
+        assert "files.0.path" in log_text
+        assert "missing" in log_text
+        assert self.SENTINEL not in log_text
+        assert "input_value" not in log_text
