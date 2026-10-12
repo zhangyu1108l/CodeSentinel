@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 8：LangGraph Multi-Agent — 🟡 进行中（8.1~8.5 已完成并推送；其余子任务待做）**
+**Phase 8：LangGraph Multi-Agent — ✅ 已完成（2026-10-12 用户确认；8.1~8.9 全部实现并推送至 PR #6，HEAD `071a2ff`；最终全量 2698 passed / 8 skipped；生产路由切换与真实环境联调为明示的后续决策项）**
 
 ## 当前任务
 
-Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11）：全量测试 2170 passed / 2 skipped / 1 warning；PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成（已知边界）。§10 清单 `Java analyzer adapter` / `Python analyzer adapter` 两项语义待确认（记录保留）。Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已推送；安全日志硬化（`c0fd25d`）、Phase 8.1 最小工作流（`fb2e800`）、8.2 共享预算上下文（`cbe52cb`）、8.3 Planner 驱动分析工作流（`54bcd2a`）、8.4 有界上下文载荷与 Finding 验证（`b5e9faa`）8.5 生产路径图工作流接线（`91ddf7a`）、8.6 静态分析工具接入生产 Review 流程（`2e789aa`）、8.7 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合、Reporter、预算分配）与 8.8 生产切换前质量加固（测试安全 opt-in、契约映射、状态语义表、Validator 加固、评测基础、切换守卫）与 8.9 状态语义与执行预算治理（映射不完整→DEGRADED、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、11s 清理预留与 DeadlineCappedExecutor 封顶、settings 预留校验）已完成；**8.8/8.9 已提交并推送（`a22505f`、`cedca1c`），PR #6 已更新（18 commits，head `cedca1c`）待审查**（详见记录 2026-10-11 (4)~(10)）。
+Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11；PMD 7.28.0 / Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成，已知边界）。**Phase 8（LangGraph Multi-Agent）已完成（2026-10-12，用户确认）**：8.1~8.9 全部实现并提交推送至 `feature/phase8-langgraph-multi-agent`（HEAD `071a2ff`，20 commits，本地与远端一致），最终默认全量 **2698 passed / 8 skipped / 1 warning**（live 全部 opt-in 跳过、出站网络默认阻断）；PR #6 OPEN / MERGEABLE / mergeStateStatus CLEAN，待仓库所有者评审合并。生产路由切换、真实静态工具/真实 DeepSeek 联调、评测集实测与 Validator 语义闸门（§9.6）为**明示的后续决策项**，不影响本阶段完成判定（详见记录 2026-10-11 (4)~(11) 与 2026-10-12）。
 
 ## 当前总体进度
 
@@ -35,7 +35,7 @@ Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
 Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
-Phase 8  LangGraph Multi-Agent    🟡 进行中（8.1~8.5 已完成并推送；其余待做）
+Phase 8  LangGraph Multi-Agent    ✅ 已完成（2026-10-12 用户确认；8.1~8.9 实现并推送至 PR #6，HEAD `071a2ff`；全量 2698 passed / 8 skipped；生产切换为后续决策项）
 Phase 9  GitHub 评论              ⬜ 未开始
 Phase 10 MySQL 历史记录           ⬜ 未开始
 ```
@@ -1353,11 +1353,11 @@ Bug Agent   Security Agent  Performance   Quality Agent
 
 ## Phase 8 状态
 
-**🟡 进行中（8.1~8.9 完成并已提交推送（`a22505f`/`cedca1c`）；其余子任务待做）**
+**✅ 已完成（2026-10-12，用户确认）**：8.1~8.9 全部实现并提交推送至 `feature/phase8-langgraph-multi-agent`（HEAD `071a2ff`，20 commits）；最终默认全量 **2698 passed / 8 skipped / 1 warning**；PR #6 OPEN / MERGEABLE / CLEAN，待仓库所有者评审合并。
 
 ## 当前任务
 
-Phase 8.1~8.9 已完成（见记录 2026-10-11 (4)~(10)）：最小图（8.1）、共享预算上下文与状态/路由（8.2）、Planner 驱动分析工作流（8.3）、有界上下文载荷与 Finding 验证及 BUG Agent 真实上下文闭环（8.4）、生产路径经图工作流服务（8.5）、静态分析工具接入生产 Review 流程（8.6）、完整多 Agent 审查闭环（8.7）、生产切换前质量加固（8.8）、状态语义与执行预算治理（8.9：映射不完整降级、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、共享 deadline 下的 11s 清理预留与工具等待封顶、settings 预留校验；**已提交 `a22505f`/`cedca1c` 并推送、未切换生产路由**）。仍未完成：真实工具/真实 LLM 联调、评测集实测、契约映射接入路由的替换式改造、Validator 语义闸门（规则引擎/真实性判定）、finding 语义级合并与行号定位校验。
+Phase 8（LangGraph Multi-Agent）已完成（见记录 2026-10-11 (4)~(11) 与 2026-10-12）：最小图（8.1）、共享预算上下文与状态/路由（8.2）、Planner 驱动分析工作流（8.3）、有界上下文载荷与 Finding 验证及 BUG Agent 真实上下文闭环（8.4）、生产路径经图工作流服务（8.5）、静态分析工具接入生产 Review 流程（8.6）、完整多 Agent 审查闭环（8.7）、生产切换前质量加固（8.8）、状态语义与执行预算治理（8.9）。**后续决策项（不属于本阶段完成判定，未完成不得标记）**：生产路由切换（需评测数据 + 映射接入替换式改造）、真实静态工具/真实 DeepSeek 联调、评测集实测 Precision/Recall、Validator 语义闸门（规则引擎/真实性判定）、finding 语义级合并与行号定位校验。下一步为 **Phase 9：GitHub Summary + Inline Comment**（需先由仓库所有者合并 PR #6，再按 AGENTS §30.1 从 `main` 创建新分支）。
 
 ## 阻塞问题
 
@@ -1663,6 +1663,27 @@ Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 ---
 
 ## 开发记录
+
+### 2026-10-12
+
+Phase 8（LangGraph Multi-Agent）完成，用户确认验收通过。
+
+- [x] 8.1~8.9 全部实现并提交推送至 `feature/phase8-langgraph-multi-agent`：最新提交 `071a2ff`（20 commits；本地与远端一致，工作区干净；`git diff --check` 通过）
+- [x] 最终默认全量测试（离线安全：live DeepSeek/静态工具全部 opt-in 跳过、出站网络默认阻断）：`PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider` → **2698 passed / 8 skipped / 1 warning**；跳过明细 = 2 symlink（环境）+ 2 DeepSeek live + 4 静态工具 live
+- [x] PR #6 状态：OPEN / MERGEABLE / `mergeStateStatus=CLEAN`，head `071a2ff`，base `main`，20 commits；仓库未配置 CI（无 `.github/workflows`，`gh pr checks` 无检查项）；无审查意见；**尚未合并**（`mergedAt=null`，`main` 仍为 `d305b47`）——合并由仓库所有者执行
+- [x] 阶段完成判定说明：本阶段目标（多 Agent 分析链路 + 质量加固 + 状态/预算治理）实现与测试已完成并验收；**生产路由切换、真实静态工具/真实 DeepSeek 联调、评测集实测、Validator 语义闸门（§9.6）为明示的后续决策项**，不在本阶段完成判定内，也不得标记为已完成
+
+当前状态：
+
+```text
+Phase 8：LangGraph Multi-Agent ✅ 已完成（2026-10-12；PR #6 待合并；生产切换为后续决策项）
+```
+
+下一步：
+
+```text
+合并 PR #6（仓库所有者）→ 从 main 创建新分支启动 Phase 9：GitHub Summary + Inline Comment
+```
 
 ### 2026-10-11
 
@@ -3356,7 +3377,7 @@ Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / pic
 Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
 ```
 
-下一步为 **Phase 8：LangGraph Multi-Agent 后续子任务**（8.1~8.9 完成，见记录 2026-10-11 (4)~(10)；8.8/8.9 已提交并推送至当前功能分支（`feature/phase8-langgraph-multi-agent`，HEAD `cedca1c`），PR #6 OPEN（18 commits，head `cedca1c`）待审查）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文与多节点预算分配、Planner 与四个维度 Agent、有界上下文载荷与 Finding 验证、Validator（结构验证 + 变更行锚定 + 类别校验 + 安全计数）、确定性聚合去重、Reporter（稳定报告结构 + degraded 显式化）、`AnalysisReport → ReviewTaskResult` 显式映射（映射不完整→DEGRADED）、静态执行降级与 disabled 显式形状、共享 deadline 清理预留与工具等待封顶、评测基础（test-cases + 指标计算）、生产切换强守卫、默认测试安全（live opt-in + 出站网络阻断）；仍待实现：分析链路与生产契约映射评估（评测集实测）、真实工具/真实 LLM 联调（本机未安装工具；opt-in 用例已就绪）、契约映射接入路由的替换式改造、finding 语义级合并与行号定位校验、Validator 语义闸门（规则引擎/真实性判定）、Java 静态工具接入（方案已记录）。
+Phase 8（LangGraph Multi-Agent）已完成（2026-10-12，用户确认）：8.1~8.9 实现并推送至 `feature/phase8-langgraph-multi-agent`（HEAD `071a2ff`，20 commits，最终全量 2698 passed / 8 skipped），PR #6 OPEN / MERGEABLE / CLEAN 待仓库所有者合并；生产路由切换、真实工具/真实 LLM 联调、评测集实测与 Validator 语义闸门为后续决策项。下一步为 **Phase 9：GitHub Summary + Inline Comment**（需先合并 PR #6，再按 AGENTS §30.1 从 `main` 创建新分支）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文与多节点预算分配、Planner 与四个维度 Agent、有界上下文载荷与 Finding 验证、Validator（结构验证 + 变更行锚定 + 类别校验 + 安全计数）、确定性聚合去重、Reporter（稳定报告结构 + degraded 显式化）、`AnalysisReport → ReviewTaskResult` 显式映射（映射不完整→DEGRADED）、静态执行降级与 disabled 显式形状、共享 deadline 清理预留与工具等待封顶、评测基础（test-cases + 指标计算）、生产切换强守卫、默认测试安全（live opt-in + 出站网络阻断）；仍待实现：分析链路与生产契约映射评估（评测集实测）、真实工具/真实 LLM 联调（本机未安装工具；opt-in 用例已就绪）、契约映射接入路由的替换式改造、finding 语义级合并与行号定位校验、Validator 语义闸门（规则引擎/真实性判定）、Java 静态工具接入（方案已记录）。
 
 已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
 
