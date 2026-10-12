@@ -1,4 +1,9 @@
+import math
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.analyzers.execution import PROCESS_CLEANUP_RESERVE_SECONDS
 
 
 class Settings(BaseSettings):
@@ -6,6 +11,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     APP_NAME: str = "codesentinel-ai"
@@ -29,7 +35,60 @@ class Settings(BaseSettings):
     PR_CONTEXT_TIMEOUT: float = 30
     AI_SERVICE_URL: str = "http://localhost:8000"
     AI_SERVICE_TIMEOUT: float = 120
+    REVIEW_TOTAL_BUDGET: float = 100
     REVIEW_TASK_MAX_RETRIES: int = 3
+
+    STATIC_ANALYSIS_ENABLED: bool = True
+    STATIC_ANALYSIS_RUFF_EXECUTABLE: str = "ruff"
+    STATIC_ANALYSIS_BANDIT_EXECUTABLE: str = "bandit"
+    STATIC_ANALYSIS_SEMGREP_EXECUTABLE: str = "semgrep"
+    STATIC_ANALYSIS_SEMGREP_CONFIG: str = ""
+
+    @model_validator(mode="after")
+    def _validate_review_budget_against_worker_timeout(
+        self,
+    ) -> "Settings":
+        """Startup guard for the review budget pair.
+
+        REVIEW_TOTAL_BUDGET bounds the whole server side review while the
+        worker stops waiting after AI_SERVICE_TIMEOUT; if the budget were
+        equal or larger, the worker could abort while the AI service still
+        runs, leaving orphan work and duplicate retries. A misconfigured
+        pair fails here, at configuration initialization, instead of on
+        the first request.
+        """
+        budget = self.REVIEW_TOTAL_BUDGET
+        worker_timeout = self.AI_SERVICE_TIMEOUT
+        if not math.isfinite(budget) or budget <= 0:
+            raise ValueError(
+                "REVIEW_TOTAL_BUDGET must be a positive finite number "
+                f"(got {budget!r})"
+            )
+        if not math.isfinite(worker_timeout) or worker_timeout <= 0:
+            raise ValueError(
+                "AI_SERVICE_TIMEOUT must be a positive finite number "
+                f"(got {worker_timeout!r})"
+            )
+        if budget >= worker_timeout:
+            raise ValueError(
+                "REVIEW_TOTAL_BUDGET must be strictly smaller than "
+                "AI_SERVICE_TIMEOUT so the AI service finishes before "
+                "the worker stops waiting "
+                f"(REVIEW_TOTAL_BUDGET={budget!r}, "
+                "AI_SERVICE_TIMEOUT="
+                f"{worker_timeout!r})"
+            )
+        if budget + PROCESS_CLEANUP_RESERVE_SECONDS >= worker_timeout:
+            raise ValueError(
+                "REVIEW_TOTAL_BUDGET must leave the static tool cleanup "
+                "reserve inside AI_SERVICE_TIMEOUT "
+                "(PROCESS_CLEANUP_RESERVE_SECONDS="
+                f"{PROCESS_CLEANUP_RESERVE_SECONDS:g}s, "
+                f"REVIEW_TOTAL_BUDGET={budget!r}, "
+                "AI_SERVICE_TIMEOUT="
+                f"{worker_timeout!r})"
+            )
+        return self
 
 
 settings = Settings()

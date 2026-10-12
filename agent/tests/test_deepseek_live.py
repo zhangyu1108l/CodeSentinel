@@ -1,11 +1,15 @@
-"""Live DeepSeek API tests.
+"""Live DeepSeek API tests (explicit opt-in since Phase 8.8).
 
-These tests call the real DeepSeek API and are skipped automatically
-unless DEEPSEEK_API_KEY is configured. They are never required by the
-default pytest run.
+These tests call the real DeepSeek API and require BOTH:
+
+- CODESENTINEL_DEEPSEEK_LIVE=1
+- a configured DEEPSEEK_API_KEY
+
+The default test run never reaches the real API, even when a key is
+configured (tests/conftest.py also blocks outbound host resolution).
 
 Run explicitly with:
-    DEEPSEEK_API_KEY=sk-... pytest tests/test_deepseek_live.py
+    CODESENTINEL_DEEPSEEK_LIVE=1 DEEPSEEK_API_KEY=sk-... pytest tests/test_deepseek_live.py
 """
 
 import asyncio
@@ -16,10 +20,14 @@ from app.config.settings import settings
 from app.llm.llm_service import LLMService
 from app.prompts.review import build_messages
 from app.schemas.review import ReviewTaskRequest
+from tests.live_gates import deepseek_live_enabled
 
 pytestmark = pytest.mark.skipif(
-    not settings.DEEPSEEK_API_KEY,
-    reason="DEEPSEEK_API_KEY is not configured; skipping live DeepSeek tests",
+    not deepseek_live_enabled() or not settings.DEEPSEEK_API_KEY,
+    reason=(
+        "live DeepSeek tests require CODESENTINEL_DEEPSEEK_LIVE=1 and "
+        "DEEPSEEK_API_KEY; skipping"
+    ),
 )
 
 

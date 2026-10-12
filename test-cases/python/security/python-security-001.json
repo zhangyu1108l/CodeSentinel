@@ -1,0 +1,21 @@
+{
+  "case_id": "python-security-001",
+  "language": "python",
+  "category": "SECURITY",
+  "source": {
+    "file_path": "sample.py",
+    "code": "def find_user(cursor, name):\n    query = f\"SELECT * FROM users WHERE name = '{name}'\"\n    return cursor.execute(query)\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-PY-SEC-001",
+      "category": "SECURITY",
+      "severity": "CRITICAL",
+      "file_path": "sample.py",
+      "start_line": 2,
+      "end_line": 2,
+      "description": "SQL built by string interpolation"
+    }
+  ],
+  "notes": "Use parameterized queries instead."
+}

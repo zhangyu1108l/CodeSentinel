@@ -7,7 +7,13 @@ from fastapi.testclient import TestClient
 from app.api.review_router import get_review_service
 from app.llm.llm_service import LLMService
 from app.main import app
-from app.schemas.review import Category, ReviewFinding, Severity
+from app.schemas.review import (
+    Category,
+    ReviewFinding,
+    ReviewTaskResult,
+    Severity,
+)
+from app.services.request_budget import RequestBudget
 from app.services.review_service import ReviewService
 
 client = TestClient(app)
@@ -145,3 +151,94 @@ def test_health_still_works():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "UP"
+
+
+def make_result(status="COMPLETED"):
+    return ReviewTaskResult(
+        task_id=1,
+        status=status,
+        report={"summary": "ok", "total_findings": 0, "context": {}},
+        findings=[],
+    )
+
+
+def override_service_mock(result):
+    service = MagicMock(spec=ReviewService)
+    service.review = AsyncMock(return_value=result)
+    app.dependency_overrides[get_review_service] = lambda: service
+    return service
+
+
+def test_review_service_is_called_once_with_a_shared_budget():
+    service = override_service_mock(make_result())
+    try:
+        response = client.post("/api/reviews", json=make_request_body())
+
+        assert response.status_code == 200
+        assert service.review.await_count == 1
+        budget = service.review.call_args.kwargs.get("budget")
+        assert isinstance(budget, RequestBudget)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_degraded_result_is_returned_with_200():
+    service = override_service_mock(
+        make_result(status="DEGRADED")
+    )
+    try:
+        response = client.post("/api/reviews", json=make_request_body())
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "DEGRADED"
+        assert service.review.await_count == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_review_workflow_dependency_builds_a_workflow():
+    from app.api.review_router import get_review_workflow
+    from app.graph.workflow import ReviewWorkflow
+
+    llm = MagicMock(spec=LLMService)
+    workflow = get_review_workflow(
+        ReviewService(llm_service=llm)
+    )
+
+    assert isinstance(workflow, ReviewWorkflow)
+
+
+def test_static_analysis_dependency_is_configurable(monkeypatch):
+    from app.api.review_router import get_static_analysis_service
+    from app.config.settings import settings
+    from app.services.static_analysis_service import (
+        DisabledStaticAnalysisService,
+        StaticAnalysisService,
+    )
+
+    monkeypatch.setattr(settings, "STATIC_ANALYSIS_ENABLED", True)
+    assert isinstance(
+        get_static_analysis_service(), StaticAnalysisService
+    )
+
+    monkeypatch.setattr(settings, "STATIC_ANALYSIS_ENABLED", False)
+    disabled = get_static_analysis_service()
+    assert isinstance(disabled, DisabledStaticAnalysisService)
+
+    from app.services.request_budget import RequestBudget
+
+    outcome = disabled.analyze({"a.py": "x = 1\n"}, RequestBudget(5))
+    assert outcome.notes == ["disabled"]
+    assert outcome.degraded is False
+
+
+def test_review_service_dependency_receives_static_service():
+    from app.api.review_router import get_review_service
+
+    marker = object()
+    service = get_review_service(
+        llm_service=MagicMock(spec=LLMService),
+        pr_context_client=None,
+        static_analysis_service=marker,
+    )
+    assert service.static_analysis_service is marker

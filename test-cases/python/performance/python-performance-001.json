@@ -1,0 +1,21 @@
+{
+  "case_id": "python-performance-001",
+  "language": "python",
+  "category": "PERFORMANCE",
+  "source": {
+    "file_path": "sample.py",
+    "code": "def load(names, db):\n    result = []\n    for name in names:\n        result.append(db.fetch(name))\n    return result\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-PY-PERF-001",
+      "category": "PERFORMANCE",
+      "severity": "MEDIUM",
+      "file_path": "sample.py",
+      "start_line": 4,
+      "end_line": 4,
+      "description": "One database round trip per item (N+1 pattern)"
+    }
+  ],
+  "notes": "Prefer a single batched fetch."
+}

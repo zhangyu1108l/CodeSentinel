@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import traceback
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -112,3 +113,45 @@ class TestLLMService:
         service = LLMService(deepseek_client=client)
         with pytest.raises(LLMException, match="HTTP 429"):
             asyncio.run(service.generate_findings(MESSAGES))
+
+
+SENTINEL = "SENTINEL-LLM-OUTPUT-DO-NOT-LOG"
+
+
+class TestSchemaFailureStaysInputFree:
+    def make_invalid_content(self):
+        finding = dict(VALID_FINDING)
+        finding["description"] = SENTINEL
+        del finding["suggestion"]
+        return json.dumps({"findings": [finding]})
+
+    def test_error_message_and_log_hide_the_llm_output(self, caplog):
+        service = make_service(self.make_invalid_content())
+        with caplog.at_level(
+            "ERROR", logger="codesentinel-ai.llm_service"
+        ):
+            with pytest.raises(LLMResponseError) as exc_info:
+                asyncio.run(service.generate_findings(MESSAGES))
+
+        message = str(exc_info.value)
+        assert "LLM output failed schema validation" in message
+        assert "findings.0.suggestion" in message
+        assert "missing" in message
+        assert SENTINEL not in message
+        assert "input_value" not in message
+
+        log_text = "\n".join(
+            record.getMessage() for record in caplog.records
+        )
+        assert "findings.0.suggestion" in log_text
+        assert SENTINEL not in log_text
+        assert "input_value" not in log_text
+
+    def test_traceback_does_not_leak_the_llm_output(self):
+        service = make_service(self.make_invalid_content())
+        with pytest.raises(LLMResponseError) as exc_info:
+            asyncio.run(service.generate_findings(MESSAGES))
+
+        text = "".join(traceback.format_exception(exc_info.value))
+        assert SENTINEL not in text
+        assert "ValidationError" not in text

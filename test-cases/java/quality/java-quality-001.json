@@ -1,0 +1,21 @@
+{
+  "case_id": "java-quality-001",
+  "language": "java",
+  "category": "QUALITY",
+  "source": {
+    "file_path": "Sample.java",
+    "code": "class Sample {\n    String status(int code) {\n        if (code == 200) {\n            return \"ok\";\n        } else if (code == 200) {\n            return \"ok\";\n        }\n        return \"error\";\n    }\n}\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-JAVA-QUAL-001",
+      "category": "QUALITY",
+      "severity": "LOW",
+      "file_path": "Sample.java",
+      "start_line": 5,
+      "end_line": 6,
+      "description": "Duplicated and unreachable condition branch"
+    }
+  ],
+  "notes": "Second condition identical to the first."
+}

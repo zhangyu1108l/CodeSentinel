@@ -1,0 +1,21 @@
+{
+  "case_id": "java-performance-001",
+  "language": "java",
+  "category": "PERFORMANCE",
+  "source": {
+    "file_path": "Sample.java",
+    "code": "class Sample {\n    String join(String[] parts) {\n        String result = \"\";\n        for (String part : parts) {\n            result += part;\n        }\n        return result;\n    }\n}\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-JAVA-PERF-001",
+      "category": "PERFORMANCE",
+      "severity": "MEDIUM",
+      "file_path": "Sample.java",
+      "start_line": 5,
+      "end_line": 5,
+      "description": "String concatenation inside a loop allocates repeatedly"
+    }
+  ],
+  "notes": "Use StringBuilder."
+}

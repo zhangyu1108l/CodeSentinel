@@ -1,0 +1,21 @@
+{
+  "case_id": "python-bug-001",
+  "language": "python",
+  "category": "BUG",
+  "source": {
+    "file_path": "sample.py",
+    "code": "def lookup(user, key):\n    return user[key][\"email\"]\n"
+  },
+  "expected_findings": [
+    {
+      "rule_id": "CS-PY-BUG-001",
+      "category": "BUG",
+      "severity": "HIGH",
+      "file_path": "sample.py",
+      "start_line": 2,
+      "end_line": 2,
+      "description": "Missing key or None profile raises at runtime"
+    }
+  ],
+  "notes": "Dictionary access without a guard."
+}

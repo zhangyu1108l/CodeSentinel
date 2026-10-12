@@ -367,64 +367,44 @@ CodeSentinel 项目文档职责保持清晰：
 
 ## 13. 当前项目状态
 
-截至当前：
+截至当前（2026-10-11）：
 
-- Phase 1：已完成
-- Phase 2：已完成
-- Phase 3：未开始
+- Phase 1 ~ Phase 6：已完成并合并 `main`
+- Phase 7：Static Analysis 已正式验收（2026-10-10），并通过 PR #5 合并 `main`（merge commit `d305b47`）
+- Phase 8：LangGraph Multi-Agent，进行中；基线分支 `feature/phase8-langgraph-multi-agent`（PR #6）；8.1~8.9 完成（最小图 → 共享预算上下文与状态/路由 → Planner 驱动分析工作流 → 有界上下文载荷与 Finding 验证 → 生产路径图工作流接线 → 静态分析工具接入生产 Review 流程（本机未安装工具，真实联调待环境就绪）→ 完整多 Agent 审查闭环（Security/Performance/Quality Agent、Validator、聚合去重、Reporter、多节点预算分配）→ 生产切换前质量加固（live 测试 opt-in 与默认出站阻断、`AnalysisReport → ReviewTaskResult` 显式映射、状态语义表、Validator 锚定/类别校验、评测基础 test-cases 与指标、切换强守卫）→ 状态语义与执行预算治理（映射不完整→DEGRADED、静态执行降级、Semgrep 未配置不降级、disabled 显式形状、共享 deadline 下的 11s 清理预留与 DeadlineCappedExecutor 封顶、settings 预留校验；**8.8/8.9 已提交并推送至当前功能分支（HEAD `cedca1c`），PR #6 OPEN 待审查**）；`langgraph==1.2.5`），见 `DEVELOPMENT_STATUS.md` 记录 2026-10-11 (4)~(10)
 
-Phase 2 已完成：
+### Live 测试运行说明（Phase 8.8）
 
-- GitHub App
-- Webhook 接收
-- `X-Hub-Signature-256` HMAC-SHA256 验证
-- `pull_request` 事件解析
-- `opened`
-- `synchronize`
-- `reopened`
-- Smee 本地开发联调
-- 真实 GitHub Webhook 联调成功
-- HTTP 200 验证通过
+默认 `pytest` 运行**不会**真实调用 LLM 或静态工具：`tests/conftest.py` 阻断非回环出站解析，live 用例仅在显式开关下收集为可运行。
+
+- 真实 DeepSeek：`CODESENTINEL_DEEPSEEK_LIVE=1` 且 `DEEPSEEK_API_KEY` 已配置
+- 真实静态工具：`CODESENTINEL_STATIC_TOOLS_LIVE=1` 且工具在 PATH（ruff/bandit/semgrep）
+- 默认关闭时，相关用例以明确原因 skip；不要为了“全绿”而移除这些开关
+
+Phase 7 已完成（摘要）：
+
+- `agent/app/schemas/static_analysis.py`（统一静态分析契约）
+- `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard + Ruff / Bandit / Semgrep / PMD / Checkstyle 适配器）
+- PMD 7.28.0 与 Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实工具联调待完成（已知边界）
+- 全量测试：Python 2170 passed / 2 skipped；Java 202 passed
 
 ---
 
-## 14. Phase 3 开发原则
+## 14. 当前阶段开发原则（Phase 8）
 
-Phase 3 目标：
+Phase 8 目标：
 
-> 实现 GitHub API 集成，让 CodeSentinel 能够获取 Pull Request 的元数据、Commit、Changed Files、Diff 和必要的文件内容。
+> LangGraph Multi-Agent：Planner → Bug / Security / Performance / Quality Agent → Validator → Reporter（见 `PROJECT_DESIGN.md` §21、`DEVELOPMENT_STATUS.md` §11）。
 
-Phase 3 应拆分实施，不一次性完成。
+Phase 8 应拆分实施，不一次性完成（本文件 §5 新 Phase 开始规则、§7 小任务流程）。
 
-推荐顺序：
+原则：
 
-```text
-Phase 3.1
-GitHub App JWT + Installation Token
-        ↓
-Phase 3.2
-GitHub API Client
-        ↓
-Phase 3.3
-Pull Request API
-        ↓
-Phase 3.4
-Changed Files API
-        ↓
-Phase 3.5
-Commit / Diff 获取
-        ↓
-Phase 3.6
-文件内容与统一 PR Context
-```
-
-当前优先从：
-
-> Phase 3.1：GitHub App JWT + Installation Token
-
-开始。
-
-除非用户明确要求，不应在 Phase 3.1 中提前实现完整 PR Review、Review Task、Redis 队列、AI Agent、静态分析或其他后续 Phase 功能。
+- 串行优先：Agent 初始实现使用串行流程保证稳定与可验证，不盲目并行（`AGENTS.md` §38）
+- 统一 Finding Schema、Agent 职责单一（`AGENTS.md` §6、§7）
+- Validator 是最终质量闸门：结合重新读取的代码、Diff 与静态分析证据（`AGENTS.md` §8）
+- 不提前实现后续 Phase：GitHub Comment（Phase 9）、MySQL 历史记录（Phase 10）、RAG / Milvus、Dashboard、VS Code、Auto Fix（`DEVELOPMENT_STATUS.md` §23）
+- 不执行 PR 中的不可信代码（`AGENTS.md` §27）
 
 ---
 
