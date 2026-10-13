@@ -1,6 +1,6 @@
 import logging
 
-from app.schemas.review import ReviewTaskRequest
+from app.schemas.review import ReviewTaskRequest, ReviewTaskResult
 from app.worker.ai_client import AiServiceClient
 from app.worker.java_client import JavaServiceClient
 from app.worker.models import TaskMessage
@@ -33,17 +33,22 @@ class TaskHandler:
             logger.error("Failed to mark task %d as RUNNING, skipping", message.taskId)
             return
 
-        try:
-            self._process(message)
-        except Exception:
-            raise
+        result = self._process(message)
+
+        # The result must be durable on the Java side before the task is
+        # marked COMPLETED; a submission failure propagates so the
+        # consumer's bounded retry path (report_failure) takes over. A
+        # 409 conflict returns normally (an existing result is kept).
+        self.java_client.submit_result(
+            message.taskId, message.commitSha, result
+        )
 
         try:
             self.java_client.mark_completed(message.taskId)
         except Exception:
             logger.error("Failed to mark task %d as COMPLETED", message.taskId)
 
-    def _process(self, message: TaskMessage) -> None:
+    def _process(self, message: TaskMessage) -> ReviewTaskResult:
         request = ReviewTaskRequest(
             task_id=message.taskId,
             repository=f"{message.owner}/{message.repo}",
@@ -51,4 +56,4 @@ class TaskHandler:
             commit_sha=message.commitSha,
             files=[],
         )
-        self.ai_client.review(request)
+        return self.ai_client.review(request)
