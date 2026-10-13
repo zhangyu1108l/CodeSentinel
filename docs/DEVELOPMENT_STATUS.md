@@ -36,7 +36,7 @@ Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
 Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
 Phase 8  LangGraph Multi-Agent    ✅ 已完成（2026-10-12 用户确认；8.1~8.9 实现并推送至 PR #6，HEAD `071a2ff`；全量 2698 passed / 8 skipped；生产切换为后续决策项）
-Phase 9  GitHub 评论              ⬜ 未开始
+Phase 9  GitHub 评论              🟡 进行中（9.5.3B1/B2/C 已实现并通过全量回归；PR #7 OPEN 待合并；真实 GitHub E2E 未执行）
 Phase 10 MySQL 历史记录           ⬜ 未开始
 ```
 
@@ -1417,11 +1417,37 @@ REQUEST_CHANGES
 
 ## Phase 9 状态
 
-**⬜ 未开始**
+**🟡 进行中（9.5.3B1/B2/C 已实现并通过全量回归；PR #7 OPEN 待合并；真实 GitHub E2E 未执行）**
+
+9.5.3B1 已完成（2026-10-13 验收）：
+
+- 结果接收端、校验与幂等持久化实现已完成：内部令牌认证（fail-closed）、载荷/字段校验、`(task_id, commit_sha)` 唯一键幂等、重复/冲突语义（初始 `publish_status=PENDING`）
+- `review_result_delivery` 已在 Docker MySQL 8.0.46 创建并通过核验（唯一键 / InnoDB / utf8mb4 / 9 列与 Entity/SQL 一致）
+- 真库接口验证通过：首次接收 202、相同载荷重投 200、冲突 409、并发首投最终仅一行；认证、任务绑定、字段校验、未知字段兼容性均通过
+- 测试记录保留于任务 4、5、7（共 3 条）；`review_task` 状态与重试计数未改变；Spring 验证进程已停止
+- **真库验证条件已关闭**
+
+9.5.3B2 已实现（2026-10-13，自动化测试验收通过）：
+
+- Worker 结果回传接入：`settings` 新增 `REVIEW_RESULT_INTERNAL_TOKEN` / `RESULT_SUBMIT_TIMEOUT`；`java_client.submit_result`（`X-Internal-Token`、独立超时、载荷仅 `commit_sha/status/findings`）；`handler` 顺序 `mark_running → review → submit_result → mark_completed`
+- HTTP 语义：202/200 成功；409 返回冲突标识（已有结果保留、不覆盖）；401/422/其他/5xx/网络异常与超时抛出进入既有有界重试；令牌未配置时安全失败、不发出请求
+- 语义：DEGRADED 经 `ai_status` 写入 `review_result_delivery`；Java `review_task.status` 仍为 COMPLETED（不新增 DEGRADED 状态）
+
+9.5.3C 实现完成（2026-10-13，测试通过、待验收）：
+
+- 同步发布接线：首次接收成功后调用 `ReviewResultPublishService` 发布 Inline Comments（`ReviewCommentPublisher`）与 PR Summary（`GithubIssueCommentClient` + `ReviewSummaryMarkdownBuilder`）；duplicate 不重复发布；`publish_status` 返回并持久化实际状态
+- 状态判定：全成功→PUBLISHED；有成功项且存在失败/跳过/不确定→PARTIAL；无成功项且无不确定性→FAILED；transport 级失败计为"外部副作用不确定"（PARTIAL，已知成功不丢弃）；setup 失败（token/files）→FAILED 且无评论 POST
+- 持久化：`publish_outcome_json`（逐项 filePath/行号/status/reason/commentId + summary 结果）、`published_at`（仅≥1 项确认发布时写入）；B1 冻结字段不变
+
+未完成（不得提前标记）：
+
+- 真实 GitHub E2E 发布验证（需出网与用户授权，另行安排）
+
+注：B1/B2 负责结果接收与回传，C 负责同步发布接线；**真实 GitHub E2E 尚未执行**；发布失败不会回滚外部副作用，也不会被伪装成全失败（详见记录 2026-10-13 (3)）。
 
 ## 当前任务
 
-暂无。
+Phase 9 已推送并创建 PR #7（OPEN，待审查/合并）；下一步为真实 GitHub E2E 发布验证（需授权，未执行）；合并后按 §30.1 从最新 main 创建 `feature/phase10-mysql-history`。
 
 ## 阻塞问题
 
@@ -1458,15 +1484,20 @@ review_comment
 
 ## Phase 10 状态
 
-**⬜ 未开始**
+**⬜ 未开始（调查与最小设计已完成；待 Phase 9 PR #7 合并后按 §30.1 从 main 创建 `feature/phase10-mysql-history`）**
 
 ## 当前任务
 
-暂无。
+调查与最小设计已完成（以实际代码为准，见记录 2026-10-13 (4)）：
+
+- 目标：结构化历史保存与查询（`review_report` 1:1 task / `review_finding` / `review_comment`）+ `/api/reviews/**` 查询 API（AGENTS §23）
+- 边界与关系：`review_result_delivery` 保持"接收/重放缓冲"（契约冻结、不改）；结构化表为查询模型；过渡期允许快照与结构化并存（发布流程同时更新两者），收敛留给后续阶段
+- 现库事实：`review_task` 无 `(owner, repo, pr_number, commit_sha)` 唯一键、无查询索引（仅 PK）；治理项在 10.1 评估（新增索引 / 可选唯一键，需批准）
+- 任务拆分：10.1 Schema + 手工 DDL → 10.2 实体/Repository → 10.3 接收流结构化写入（幂等、duplicate 自愈）→ 10.4 发布结果写入（comment 行 + 报告发布状态）→ 10.5 查询 API（单条 / Findings / 分页列表）→ 10.6 测试与真库验证
 
 ## 阻塞问题
 
-暂无。
+等待 Phase 9 PR #7 合并；合并前不创建 Phase 10 分支、不向 Phase 9 分支提交 Phase 10 代码。
 
 ---
 
@@ -1663,6 +1694,136 @@ Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 ---
 
 ## 开发记录
+
+### 2026-10-13 (4)
+
+Phase 9 正式收尾：范围复核、全量回归、提交推送并创建 PR #7；Phase 10 调查与最小设计完成（未创建分支）。
+
+已完成：
+
+- [x] Phase 9 范围复核（以实际代码为准）：Java 结果接收（`POST /api/tasks/{taskId}/result`：内部令牌 fail-closed、`(task_id, commit_sha)` 唯一键幂等、202/200/409/422）、Python Worker 结果投递（`X-Internal-Token`、独立 `RESULT_SUBMIT_TIMEOUT`、409 语义）、PR Summary + Inline Comment 构建与发布（`ReviewCommentPublisher` / `ReviewResultPublishService`）、发布状态持久化（`publish_status` / `publish_outcome_json` / `published_at`）、`review_result_delivery` 手工 DDL
+- [x] 提交并推送：`c3a21da`（后端：`feat(review): add review result reception and GitHub comment publishing (Phase 9)`，44 files / +4794）、`4e3e6d6`（Worker：`feat(agent): forward review results to the Java reception endpoint (Phase 9.5.3B2)`，6 files / +506）；分支 `feature/phase9-github-comments` 已推送 origin（tracking 建立）；**PR #7 已创建：https://github.com/zhangyu1108l/CodeSentinel/pull/7（OPEN，base `main`，待审查/合并，未合并）**
+- [x] 回归（真实执行）：Java `mvn test` → **302 passed / 0 failures / 0 errors**（基线 289，+13）；Python `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider` → **2715 passed / 8 skipped / 1 warning**（基线 2698，+17）；`git diff --check` 通过（无空白错误）
+- [x] 安全复核：`.env`、`secrets/`、构建产物均未入库；提交文件无令牌/私钥（仅 `.env.example` 占位键名）；无新依赖、无迁移工具、无越界变更
+
+未完成 / 已知限制（不得标记通过）：
+
+- **真实 GitHub E2E 发布未执行**（需出网与用户授权）；发布失败无自动重试/调度/崩溃恢复；transport 不确定性无法自动核对（PARTIAL 不伪装）；无限流提前止损；PR 审查后前进时 diff 漂移表现为逐项 skip/fail
+- 外部 GitHub 调用成功但"发布列更新"失败时以 500 暴露且不回滚外部副作用（已在 Javadoc 与本文档记录）
+
+Phase 10（调查与最小设计结论，未创建分支）：
+
+- 目标：结构化保存与查询历史（`review_report` 1:1 task / `review_finding` / `review_comment` 子表）+ `/api/reviews/**` 查询 API（AGENTS §23）；不重写既有数据模型
+- 边界与关系：`review_result_delivery` 保持"接收/重放缓冲"（契约冻结、不改）；结构化表为查询模型；过渡期允许快照与结构化并存（发布流程同时更新两者），收敛留给后续阶段评估
+- 现库事实：`review_task` 无 `(owner, repo, pr_number, commit_sha)` 唯一键、无查询索引（仅 PK）；治理项在 10.1 评估（新增索引 / 可选唯一键，需批准）
+- 任务拆分：10.1 Schema + 手工 DDL → 10.2 实体/Repository → 10.3 接收流结构化写入（幂等、duplicate 自愈）→ 10.4 发布结果写入（comment 行 + 报告发布状态）→ 10.5 查询 API（单条 / Findings / 分页列表）→ 10.6 测试与真库验证
+
+当前状态：
+
+```text
+Phase 9：GitHub Summary + Inline Comment 🟡 进行中（已实现并通过全量回归；PR #7 OPEN 待合并；真实 GitHub E2E 未执行）
+Phase 10：MySQL 历史记录 ⬜ 未开始（调查与最小设计已完成，等待 Phase 9 合并后创建 feature/phase10-mysql-history）
+```
+
+下一步：
+
+```text
+Phase 9 PR #7 审查与合并（仓库所有者）→ 从最新 main 创建 feature/phase10-mysql-history → 按 10.1~10.6 实施
+```
+
+### 2026-10-13 (3)
+
+Phase 9.5.3C（GitHub Review 发布接线）实现完成，全量 Java 测试通过（待验收）；B2 自动化测试验收通过（记录同步）。
+
+已完成：
+
+- [x] 新增 `task/ReviewResultPublishService`（同步发布编排）+ `task/ReviewResultPublishResult`：解析 `findings_json`（复用 `ReviewResultFinding`）→ 显式投影 `InlineCommentFinding` / `SummaryFinding` / `ReviewSummaryStatus`（degraded 由 ai_status 派生，notes 为空、不伪造诊断）；Inline 经 `ReviewCommentPublisher`、Summary 经 `GithubIssueCommentClient` + `ReviewSummaryMarkdownBuilder`
+- [x] `ReviewResultService` 首次插入成功后同步发布并持久化最终状态；duplicate 不重复发布；唯一键为单飞守卫（发布调用在任何服务级事务之外）；`DataIntegrityViolationException` 捕获收窄到仅插库语句
+- [x] `ReviewResultDelivery.recordPublishOutcome`（仅更新发布列：publish_status / publish_outcome_json / published_at；B1 冻结字段不变）；`GithubCommentClientConfig` 增加 `ReviewCommentPublisher` Bean
+- [x] 状态判定：全成功→PUBLISHED；有成功项且存在失败/跳过/不确定→PARTIAL；无成功项且无外部副作用不确定性→FAILED；`transport_error` 项计为不确定（PARTIAL，不误报全失败，已知成功不丢弃）；setup 失败（token/files）→FAILED 且无评论 POST；`published_at` 仅当≥1 项确认发布时写入
+- [x] outcome JSON（稳定、可解析）：`{status, summary:{status,reason,commentId}, comments:[{filePath,startLine,endLine,status,reason,commentId}]}`；setup 失败逐项记 `setup_failed`；快照不可解析记 `findings_parse_failed`
+- [x] 测试：新增 `ReviewResultPublishServiceTest`（11 项，MockRestServiceServer 全 mock，无真实 GitHub 调用）；更新 `ReviewResultServiceTest`（16 项，含"duplicate 不发布""发布失败记录""B1 冻结字段"）与 `ReviewResultControllerTest`（+1：首收返回终态且 202/DTO 形状不变）
+- [x] 回归：Java 全量 **302 passed / 0 failures / 0 errors**（基线 289，新增 13）；`git diff --check` 通过；无新依赖、无 DDL、未改 Python Worker / B1 契约 / 已验收 Builder
+
+语义与限制（如实记录）：
+
+- 首次接收响应语义：HTTP 状态码与 DTO 形状不变；`publish_status` 返回发布后的实际状态（PUBLISHED / PARTIAL / FAILED）
+- 已知限制：无自动调度/自动重试/崩溃恢复；transport 失败的外部副作用（可能已创建评论）无法自动核对；无限流提前止损（逐项记录 `http_403/http_429` 后继续）；PR 在审查后前进时 diff 漂移表现为逐项 skip/fail
+- **未执行真实 GitHub E2E 发布**（需出网与用户授权，另行安排）
+
+当前状态：
+
+```text
+Phase 9：GitHub Summary + Inline Comment 🟡 进行中（9.5.3B1 ✅；9.5.3B2 ✅（自动化测试）；9.5.3C 已实现、测试通过（待验收）；未做真实 GitHub E2E）
+```
+
+下一步：
+
+```text
+9.5.3C 验收 → 真实 GitHub E2E 发布验证（需授权）→ Phase 9 收尾（按 §30.1 提交/PR，用户决策）
+```
+
+### 2026-10-13 (2)
+
+Phase 9.5.3B2（Python Worker 结果回传接入）实现完成，测试与回归通过（待验收）。
+
+已完成：
+
+- [x] `agent/app/config/settings.py`：新增 `REVIEW_RESULT_INTERNAL_TOKEN`（默认空）与 `RESULT_SUBMIT_TIMEOUT`（默认 30 秒）
+- [x] `agent/app/worker/java_client.py`：新增 `submit_result(task_id, commit_sha, result)`——POST `/api/tasks/{taskId}/result`、`X-Internal-Token` 头、独立 `RESULT_SUBMIT_TIMEOUT`；载荷仅 `commit_sha/status/findings`（findings 以 `model_dump(mode="json")` 序列化，不发送 `report`）
+- [x] HTTP 语义：202/200 成功（返回接收响应，含 duplicate/publish_status）；409 返回 `{"status_code": 409, "conflict": True}`（已有结果保留、不覆盖；日志明确 "was not stored"）；401/422/其他/5xx/网络异常与超时抛出，进入既有有界重试；令牌未配置时 `ResultSubmitConfigurationError` 安全失败且不发出请求
+- [x] `agent/app/worker/handler.py`：`_process` 返回 `ReviewTaskResult`（从 `TaskMessage` 注入 `commit_sha`）；`handle()` 顺序固定为 `mark_running → review → submit_result → mark_completed`；回传失败向上抛出（不 `mark_completed`），由 `consumer` 的 `report_failure`/重试接管；409 允许继续 `mark_completed`
+- [x] 测试：新增 `agent/tests/test_worker_java_client.py`（202/200/409/401/422/500/意外 2xx/网络异常/超时/令牌缺失/超时参数/载荷与头部/日志安全）；更新 `agent/tests/test_worker_handler.py`（真实结构结果、调用顺序、失败不完成、409 继续）
+- [x] `.env.example`（根目录与 `agent/`）同步 `REVIEW_RESULT_INTERNAL_TOKEN` / `RESULT_SUBMIT_TIMEOUT` 变量名（占位为空值，未写入真实密钥）
+- [x] 回归：Python 全量 **2715 passed / 8 skipped / 1 warning**（基线 2698，新增 17）；`git diff --check` 通过
+
+语义说明（防误读）：
+
+- DEGRADED 经 B2 回传后写入 `review_result_delivery.ai_status`；Java `review_task.status` 仍为 COMPLETED，不新增 DEGRADED 状态
+- B2 完成**不代表** GitHub 评论或 PR Summary 已发布；`publish_status` 仍为 `PENDING`；Phase 9.5.3C（发布接线）不属于本条目范围
+
+当前状态：
+
+```text
+Phase 9：GitHub Summary + Inline Comment 🟡 进行中（9.5.3B1 ✅ 已验收；9.5.3B2 实现完成、测试通过（待验收）；C 未完成；评论发布未发生、publish_status 仍为 PENDING）
+```
+
+下一步：
+
+```text
+C：ReviewCommentPublisher 发布接线 + Summary 发布 + publish_status 推进（需用户授权启动）
+```
+
+### 2026-10-13
+
+Phase 9.5.3B1（审查结果持久化接收端）完成实现、真库验证并通过验收。
+
+工作分支：`feature/phase9-github-comments`（HEAD `87c8d318296c781f5950e8172caacb0357c93bd0`；B1 实现尚未提交）。
+
+已完成：
+
+- [x] B1 接收端、校验与幂等持久化实现已完成：`POST /api/tasks/{taskId}/result`（内部令牌认证 fail-closed；commit_sha / status / findings 全字段校验；`(task_id, commit_sha)` 唯一键幂等持久化；重复 200 / 冲突 409 / 并发唯一键竞争处理；初始 `publish_status=PENDING`）
+- [x] `review_result_delivery` 已在 Docker MySQL 8.0.46（compose，宿主端口 3307）创建并核验：唯一键 `uk_review_result_delivery_task_commit (task_id, commit_sha)`、`ENGINE=InnoDB`、`utf8mb4`、9 列与 Entity/SQL 定义一致（`SHOW CREATE TABLE` + information_schema）
+- [x] 真库接口验证通过（仅访问 localhost:8080；未调用 GitHub / DeepSeek / Worker）：首次接收 **202**、相同载荷重投 **200**（duplicate=true，received_at 与库内存储值一致）、同键不同载荷 **409**（原记录未被覆盖）
+- [x] 并发首投（任务 5）：两请求并行 → **202 + 200**，最终**仅一行**；随后重投 **200**
+- [x] 认证、任务绑定与字段校验：缺失/错误令牌 **401**（空响应体）；未知任务 **404**；SHA 不匹配 **409**；非法 status **422**；语法错误 JSON **400**
+- [x] 未知字段兼容：载荷携带 `report` / `task_id` / 未知字段 → 首收 **202**、重投 **200**，存储快照不含额外字段（B2 契约兼容提前验证）
+- [x] 测试记录保留：任务 4、5、7 下各 1 条（共 3 条），全部 `PENDING` 且 `published_at IS NULL`；`review_task` 状态与重试计数未改变（8 行 COMPLETED / retry_count=0）
+- [x] Spring 验证进程已停止（8080 释放）；验证日志留档于系统临时目录（无令牌 / 密码）
+- [x] **真库验证条件已关闭**：此前验收遗留的"真实 MySQL 唯一键 / 事务 / 并发语义未验证"条件项已由上述真库实测关闭
+- [x] 边界说明（不得夸大）：B1 仅完成结果接收与持久化；**B2（Python Worker 结果回传）与 C（`ReviewCommentPublisher` 发布接线、Summary 发布、publish_status 推进）未完成**；**未发布任何 GitHub 评论**，发布状态仍为 `PENDING`
+
+当前状态：
+
+```text
+Phase 9：GitHub Summary + Inline Comment 🟡 进行中（9.5.3B1 结果接收端 ✅ 已实现并通过真库验证；B2/C 未完成；评论发布未发生、publish_status 仍为 PENDING）
+```
+
+下一步：
+
+```text
+B2：Python Worker 结果回传接入 → C：ReviewCommentPublisher 发布接线（均需用户授权启动）
+```
 
 ### 2026-10-12
 
