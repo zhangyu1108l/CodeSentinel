@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     REDIS_TASK_QUEUE: str = "codesentinel:review:tasks"
 
     JAVA_SERVICE_URL: str = "http://localhost:8080"
+    REVIEW_RESULT_INTERNAL_TOKEN: str = ""
+    RESULT_SUBMIT_TIMEOUT: float = 30
     PR_CONTEXT_TIMEOUT: float = 30
     AI_SERVICE_URL: str = "http://localhost:8000"
     AI_SERVICE_TIMEOUT: float = 120
