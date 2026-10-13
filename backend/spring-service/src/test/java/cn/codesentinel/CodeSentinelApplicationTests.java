@@ -1,5 +1,6 @@
 package cn.codesentinel;
 
+import cn.codesentinel.task.ReviewResultDeliveryRepository;
 import cn.codesentinel.task.ReviewTaskRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +18,9 @@ class CodeSentinelApplicationTests {
 
     @MockBean
     private ReviewTaskRepository reviewTaskRepository;
+
+    @MockBean
+    private ReviewResultDeliveryRepository reviewResultDeliveryRepository;
 
     @MockBean
     private StringRedisTemplate stringRedisTemplate;
