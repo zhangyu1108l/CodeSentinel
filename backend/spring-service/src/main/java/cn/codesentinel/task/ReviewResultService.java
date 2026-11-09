@@ -1,5 +1,6 @@
 package cn.codesentinel.task;
 
+import cn.codesentinel.persistence.UniqueKeyViolationClassifier;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -33,6 +34,17 @@ import java.util.Set;
  * the publish call; the publish attempt itself runs outside any service
  * level transaction.
  *
+ * <p>Structured history (Phase 10.3): after the first insert and
+ * before publication - and again as a best-effort self-heal on
+ * duplicate receipts - {@link ReviewHistoryService#ensureHistory} writes
+ * the snapshot-derived history rows. After the delivery reaches its
+ * terminal state, {@link ReviewHistoryService#ensurePublishHistory}
+ * mirrors the publication outcome into review_comment/review_report
+ * (Phase 10.4). Each history call is isolated at its own boundary
+ * (redacted ERROR log); neither ever changes the reception,
+ * publication, delivery update or response semantics, and neither
+ * swallows publish or delivery failures.
+ *
  * <p>Deliberately not wrapped in one service-level transaction: each
  * repository call is transactional on its own, so a unique-key race
  * ({@link DataIntegrityViolationException}) is caught after its own
@@ -41,9 +53,22 @@ import java.util.Set;
  * transaction. The duplicate pre-check and the insert are therefore two
  * transactions by design; the unique key is the real guard.
  *
- * <p>Known offline-test limitation: the unique-key / transaction /
- * concurrency semantics cannot be verified without a real MySQL (no
- * H2/Testcontainers); unit tests cover the service branches only.
+ * <p>Test structure (Phase 10.6.3): unit tests cover the service
+ * branches, payload validation and duplicate/conflict handling. Real
+ * MySQL integration tests (Testcontainers 2.0.3, MySQL 8.0.46) cover
+ * the unique-key, transaction and concurrency semantics that unit tests
+ * cannot reproduce; the Phase 10.6.3 verification ran 445 unit tests
+ * and 50 MySQL integration tests with no failures, errors or skips. No
+ * real GitHub end-to-end publication is performed by these tests.
+ *
+ * <p>Unique-key handling (L-1, Phase 10.6.3): only an explicit
+ * {@link org.springframework.dao.DuplicateKeyException} or a
+ * {@link java.sql.SQLException} with MySQL error code 1062 and SQLState
+ * 23000 is treated as a duplicate-key race. Other
+ * {@link DataIntegrityViolationException} causes are rethrown unchanged,
+ * so a non-unique integrity failure can never be converted into an
+ * idempotent duplicate response. A duplicate key is accepted only after
+ * a fresh read confirms the stored row and its identity.
  */
 @Service
 public class ReviewResultService {
@@ -65,15 +90,18 @@ public class ReviewResultService {
     private final ReviewResultDeliveryRepository repository;
     private final ObjectMapper objectMapper;
     private final ReviewResultPublishService publishService;
+    private final ReviewHistoryService historyService;
 
     public ReviewResultService(ReviewTaskService reviewTaskService,
                                ReviewResultDeliveryRepository repository,
                                ObjectMapper objectMapper,
-                               ReviewResultPublishService publishService) {
+                               ReviewResultPublishService publishService,
+                               ReviewHistoryService historyService) {
         this.reviewTaskService = reviewTaskService;
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.publishService = publishService;
+        this.historyService = historyService;
     }
 
     public ReviewResultResponse receiveResult(Long taskId,
@@ -90,7 +118,7 @@ public class ReviewResultService {
                 .findByTaskIdAndCommitSha(taskId, request.commitSha())
                 .orElse(null);
         if (existing != null) {
-            return duplicateOrConflict(existing, request.status(),
+            return duplicateOrConflict(task, existing, request.status(),
                     findingsJson);
         }
 
@@ -101,17 +129,17 @@ public class ReviewResultService {
         try {
             saved = repository.saveAndFlush(delivery);
         } catch (DataIntegrityViolationException e) {
+            if (!UniqueKeyViolationClassifier.isUniqueKeyViolation(e)) {
+                throw e;
+            }
             log.warn(
                     "Concurrent duplicate result delivery for task {} commit {}",
                     taskId, request.commitSha());
             return repository
                     .findByTaskIdAndCommitSha(taskId, request.commitSha())
-                    .map(other -> duplicateOrConflict(other, request.status(),
-                            findingsJson))
-                    .orElseThrow(() -> new ReviewResultRejectedException(
-                            409,
-                            "a concurrent result delivery is in progress; "
-                                    + "retry"));
+                    .map(other -> duplicateOrConflict(task, other,
+                            request.status(), findingsJson))
+                    .orElseThrow(() -> e);
         }
         log.info(
                 "Stored review result for task {} commit {}: status={}, findings={}",
@@ -121,18 +149,23 @@ public class ReviewResultService {
     }
 
     /**
-     * One synchronous publication attempt for the just-inserted first
-     * receipt. The publish service contains its own failures; only the
-     * delivery update can still fail here, after external side effects
-     * may already exist (they are never pretended to be rolled back).
+     * Structured history first, then one synchronous publication attempt
+     * for the just-inserted first receipt. The ensureHistory call is
+     * isolated: a history failure is logged and never changes the
+     * publish path. The publish service contains its own failures; only
+     * the delivery update can still fail here, after external side
+     * effects may already exist (they are never pretended to be rolled
+     * back).
      */
     private ReviewResultResponse publishFirstReceipt(ReviewTask task,
                                                      ReviewResultDelivery saved) {
+        ensureHistorySafely(task, saved);
         ReviewResultPublishResult publishResult =
                 publishService.publish(task, saved);
         saved.recordPublishOutcome(publishResult.status(),
                 publishResult.outcomeJson(), publishResult.publishedAt());
         repository.save(saved);
+        ensurePublishHistorySafely(task, saved);
         log.info(
                 "Review result for task {} commit {} finalized: publishStatus={}",
                 saved.getTaskId(), saved.getCommitSha(),
@@ -142,15 +175,60 @@ public class ReviewResultService {
                 saved.getPublishStatus().name(), saved.getReceivedAt());
     }
 
-    private ReviewResultResponse duplicateOrConflict(
-            ReviewResultDelivery existing, String requestStatus,
-            String findingsJson) {
+    /**
+     * Best-effort structured history write (Phase 10.3). Only this call
+     * is isolated: failures are logged with a redacted reason and the
+     * frozen Phase 9 flow continues unchanged. Exceptions from
+     * publication or the delivery update are never caught here.
+     */
+    private void ensureHistorySafely(ReviewTask task,
+                                     ReviewResultDelivery delivery) {
+        try {
+            historyService.ensureHistory(task, delivery);
+        } catch (RuntimeException error) {
+            log.error(
+                    "Review history write failed for task {} commit {}: {}",
+                    delivery.getTaskId(), delivery.getCommitSha(),
+                    historyFailureReason(error));
+        }
+    }
+
+    /**
+     * Best-effort structured publication history (Phase 10.4): mirrors
+     * the terminal outcome into review_comment/review_report. Isolated
+     * exactly like the reception history call.
+     */
+    private void ensurePublishHistorySafely(ReviewTask task,
+                                            ReviewResultDelivery delivery) {
+        try {
+            historyService.ensurePublishHistory(task, delivery);
+        } catch (RuntimeException error) {
+            log.error(
+                    "Publish history write failed for task {} commit {}: {}",
+                    delivery.getTaskId(), delivery.getCommitSha(),
+                    historyFailureReason(error));
+        }
+    }
+
+    private static String historyFailureReason(RuntimeException error) {
+        if (error instanceof ReviewHistoryConstraintException) {
+            return error.getMessage();
+        }
+        return error.getClass().getSimpleName();
+    }
+
+    private ReviewResultResponse duplicateOrConflict(ReviewTask task,
+                                                     ReviewResultDelivery existing,
+                                                     String requestStatus,
+                                                     String findingsJson) {
         if (!existing.getAiStatus().equals(requestStatus)
                 || !existing.getFindingsJson().equals(findingsJson)) {
             throw new ReviewResultRejectedException(409,
                     "a different result already exists for this task and "
                             + "commit");
         }
+        ensureHistorySafely(task, existing);
+        ensurePublishHistorySafely(task, existing);
         log.info(
                 "Duplicate review result for task {} commit {}: publishStatus={}",
                 existing.getTaskId(), existing.getCommitSha(),

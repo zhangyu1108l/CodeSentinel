@@ -1,5 +1,6 @@
 package cn.codesentinel.controller;
 
+import cn.codesentinel.security.InternalTokenMatcher;
 import cn.codesentinel.task.ReviewResultError;
 import cn.codesentinel.task.ReviewResultRejectedException;
 import cn.codesentinel.task.ReviewResultRequest;
@@ -18,19 +19,38 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-
 /**
- * Durable reception of one AI review result (Phase 9.5.3B1).
+ * Durable reception of one AI review result and synchronous publication
+ * of the first receipt (Phase 9.5.3B1, Phase 9.5.3C).
  *
- * <p>{@code POST /api/tasks/{taskId}/result} persists the transport
- * payload snapshot with publish_status=PENDING and answers 202 on a
- * first receipt; an identical re-delivery answers 200 with
- * {@code duplicate=true} and the stored publish status; a conflicting
- * payload answers 409. The endpoint never publishes comments and never
- * marks the review task COMPLETED, so COMPLETED must not be read as
- * "comments published".
+ * <p>{@code POST /api/tasks/{taskId}/result} validates the transport
+ * payload, binds it to the review task, persists the result snapshot
+ * with publish_status=PENDING, and then performs one synchronous
+ * publication attempt through
+ * {@link cn.codesentinel.task.ReviewResultPublishService} for a first
+ * receipt. The publication outcome is stored on the delivery row and
+ * mirrored, best effort, into the structured history
+ * (review_report / review_finding / review_comment). An identical
+ * re-delivery answers 200 with {@code duplicate=true}, returns the
+ * stored publish status and never publishes again; it may best-effort
+ * repair missing history rows. A conflicting payload answers 409.
+ *
+ * <p>Structured-history writes are best effort: a history failure is
+ * logged and never changes the HTTP response, so 202/200 does not
+ * guarantee that history rows exist. A later identical re-delivery is
+ * the only automatic repair path; there is no scheduled backfill or
+ * independent retry task.
+ *
+ * <p>HTTP status codes follow the current implementation: 202 for a
+ * first receipt, 200 for an identical duplicate, 409 for a conflicting
+ * payload or task/commit mismatch, 422 for an invalid payload, 401 for
+ * a missing/invalid internal token, 404 for a missing review task, and
+ * 400 for malformed JSON rejected by the message converter before this
+ * handler runs. A 202 means the result was accepted and the synchronous
+ * publication attempt completed; it does not guarantee that GitHub
+ * publication succeeded. The payload status COMPLETED is an AI status
+ * and must not be read as "comments published"; check the returned
+ * publish status instead.
  *
  * <p>Authentication: minimal configurable internal token
  * ({@code review.result.internal-token}, environment
@@ -102,11 +122,6 @@ public class ReviewResultController {
                     + "rejecting all result delivery requests");
             return false;
         }
-        if (providedToken == null) {
-            return false;
-        }
-        return MessageDigest.isEqual(
-                internalToken.getBytes(StandardCharsets.UTF_8),
-                providedToken.getBytes(StandardCharsets.UTF_8));
+        return InternalTokenMatcher.matches(internalToken, providedToken);
     }
 }

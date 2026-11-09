@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
@@ -15,8 +18,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -30,6 +36,7 @@ class ReviewResultServiceTest {
     private ReviewResultDeliveryRepository repository;
     private ObjectMapper objectMapper;
     private ReviewResultPublishService publishService;
+    private ReviewHistoryService historyService;
     private ReviewResultService service;
 
     @BeforeEach
@@ -38,8 +45,9 @@ class ReviewResultServiceTest {
         repository = mock(ReviewResultDeliveryRepository.class);
         objectMapper = new ObjectMapper();
         publishService = mock(ReviewResultPublishService.class);
-        service = new ReviewResultService(
-                reviewTaskService, repository, objectMapper, publishService);
+        historyService = mock(ReviewHistoryService.class);
+        service = new ReviewResultService(reviewTaskService, repository,
+                objectMapper, publishService, historyService);
     }
 
     @Test
@@ -135,6 +143,18 @@ class ReviewResultServiceTest {
         verify(repository, never())
                 .saveAndFlush(any(ReviewResultDelivery.class));
         verify(repository, never()).save(any(ReviewResultDelivery.class));
+
+        ArgumentCaptor<ReviewResultDelivery> historyCaptor =
+                ArgumentCaptor.forClass(ReviewResultDelivery.class);
+        verify(historyService).ensureHistory(any(ReviewTask.class),
+                historyCaptor.capture());
+        assertSame(existing, historyCaptor.getValue());
+
+        ArgumentCaptor<ReviewResultDelivery> publishHistoryCaptor =
+                ArgumentCaptor.forClass(ReviewResultDelivery.class);
+        verify(historyService).ensurePublishHistory(any(ReviewTask.class),
+                publishHistoryCaptor.capture());
+        assertSame(existing, publishHistoryCaptor.getValue());
     }
 
     @Test
@@ -160,6 +180,7 @@ class ReviewResultServiceTest {
         assertTrue(error.getMessage().contains("different result"));
         verify(repository, never())
                 .saveAndFlush(any(ReviewResultDelivery.class));
+        verifyNoInteractions(historyService);
     }
 
     @Test
@@ -190,6 +211,7 @@ class ReviewResultServiceTest {
         assertTrue(error.getMessage().contains("status"));
         verifyNoInteractions(reviewTaskService);
         verifyNoInteractions(repository);
+        verifyNoInteractions(historyService);
     }
 
     @Test
@@ -270,6 +292,7 @@ class ReviewResultServiceTest {
 
         assertEquals(409, error.getStatus());
         verifyNoInteractions(repository);
+        verifyNoInteractions(historyService);
     }
 
     @Test
@@ -320,8 +343,7 @@ class ReviewResultServiceTest {
         when(repository.findByTaskIdAndCommitSha(1L, SHA))
                 .thenReturn(Optional.empty(), Optional.of(existing));
         when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
-                .thenThrow(new DataIntegrityViolationException(
-                        "duplicate key"));
+                .thenThrow(duplicateKeyFailure());
 
         ReviewResultResponse response = service.receiveResult(
                 1L, request(SHA, "COMPLETED", findings));
@@ -329,25 +351,62 @@ class ReviewResultServiceTest {
         assertTrue(response.duplicate());
         assertEquals("PENDING", response.publishStatus());
         verifyNoInteractions(publishService);
+
+        ArgumentCaptor<ReviewResultDelivery> historyCaptor =
+                ArgumentCaptor.forClass(ReviewResultDelivery.class);
+        verify(historyService).ensureHistory(any(ReviewTask.class),
+                historyCaptor.capture());
+        assertSame(existing, historyCaptor.getValue());
+
+        ArgumentCaptor<ReviewResultDelivery> publishHistoryCaptor =
+                ArgumentCaptor.forClass(ReviewResultDelivery.class);
+        verify(historyService).ensurePublishHistory(any(ReviewTask.class),
+                publishHistoryCaptor.capture());
+        assertSame(existing, publishHistoryCaptor.getValue());
     }
 
     @Test
-    void shouldRejectWhenConcurrentInsertIsNotYetCommitted() {
+    void shouldRethrowUniqueKeyWhenConcurrentInsertIsNotYetCommitted() {
+        DataIntegrityViolationException failure = duplicateKeyFailure();
         when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
         when(repository.findByTaskIdAndCommitSha(1L, SHA))
                 .thenReturn(Optional.empty());
         when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
-                .thenThrow(new DataIntegrityViolationException(
-                        "duplicate key"));
+                .thenThrow(failure);
 
-        ReviewResultRejectedException error = assertThrows(
-                ReviewResultRejectedException.class,
+        DataIntegrityViolationException thrown = assertThrows(
+                DataIntegrityViolationException.class,
                 () -> service.receiveResult(1L,
                         request(SHA, "COMPLETED", List.of())));
 
-        assertEquals(409, error.getStatus());
-        assertTrue(error.getMessage().contains("concurrent"));
+        assertSame(failure, thrown);
+        verify(repository, times(2))
+                .findByTaskIdAndCommitSha(1L, SHA);
         verifyNoInteractions(publishService);
+        verifyNoInteractions(historyService);
+    }
+
+    @Test
+    void shouldRethrowNonUniqueDeliveryFailureWithoutDuplicateReread() {
+        DataIntegrityViolationException failure = nonUniqueFailure();
+        ReviewResultDelivery existing = delivery("COMPLETED", "[]",
+                PublishStatus.PENDING);
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.empty(), Optional.of(existing));
+        when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
+                .thenThrow(failure);
+
+        DataIntegrityViolationException thrown = assertThrows(
+                DataIntegrityViolationException.class,
+                () -> service.receiveResult(1L,
+                        request(SHA, "COMPLETED", List.of())));
+
+        assertSame(failure, thrown);
+        verify(repository, times(1))
+                .findByTaskIdAndCommitSha(1L, SHA);
+        verifyNoInteractions(publishService);
+        verifyNoInteractions(historyService);
     }
 
     @Test
@@ -363,6 +422,178 @@ class ReviewResultServiceTest {
                 () -> service.receiveResult(1L,
                         request(SHA, "COMPLETED", List.of())));
         verifyNoInteractions(publishService);
+    }
+
+    @Test
+    void shouldEnsureHistoryBeforePublishingOnFirstReceipt() {
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(publishService.publish(any(ReviewTask.class),
+                any(ReviewResultDelivery.class)))
+                .thenReturn(new ReviewResultPublishResult(
+                        PublishStatus.PUBLISHED, "{\"status\":\"PUBLISHED\"}",
+                        LocalDateTime.of(2026, 1, 1, 0, 0)));
+
+        service.receiveResult(1L, request(SHA, "COMPLETED", List.of()));
+
+        InOrder inOrder = inOrder(repository, historyService, publishService);
+        inOrder.verify(repository)
+                .saveAndFlush(any(ReviewResultDelivery.class));
+        inOrder.verify(historyService).ensureHistory(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+        inOrder.verify(publishService).publish(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+        inOrder.verify(repository).save(any(ReviewResultDelivery.class));
+        inOrder.verify(historyService)
+                .ensurePublishHistory(any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+    }
+
+    @Test
+    void shouldContinuePublishingWhenHistoryWriteFailsOnFirstReceipt() {
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(publishService.publish(any(ReviewTask.class),
+                any(ReviewResultDelivery.class)))
+                .thenReturn(new ReviewResultPublishResult(
+                        PublishStatus.PUBLISHED, "{\"status\":\"PUBLISHED\"}",
+                        LocalDateTime.of(2026, 1, 1, 0, 0)));
+        doThrow(new ReviewHistoryConstraintException("field_limit_exceeded"))
+                .when(historyService).ensureHistory(any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+
+        ReviewResultResponse response = service.receiveResult(
+                1L, request(SHA, "COMPLETED", List.of(validFinding())));
+
+        assertFalse(response.duplicate());
+        assertEquals("PUBLISHED", response.publishStatus());
+        verify(publishService).publish(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+        verify(repository).save(any(ReviewResultDelivery.class));
+    }
+
+    @Test
+    void shouldContinueReturningDuplicateWhenHistorySelfHealFails()
+            throws Exception {
+        List<ReviewResultFinding> findings = List.of(validFinding());
+        ReviewResultDelivery existing = delivery(
+                "COMPLETED", canonical(findings), PublishStatus.PUBLISHED);
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.of(existing));
+        doThrow(new ReviewHistoryConstraintException("field_limit_exceeded"))
+                .when(historyService).ensureHistory(any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+
+        ReviewResultResponse response = service.receiveResult(
+                1L, request(SHA, "COMPLETED", findings));
+
+        assertTrue(response.duplicate());
+        assertEquals("PUBLISHED", response.publishStatus());
+        verifyNoInteractions(publishService);
+        verify(historyService).ensurePublishHistory(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+    }
+
+    @Test
+    void shouldContinueFirstReceiptWhenPublishHistoryWriteFails() {
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(publishService.publish(any(ReviewTask.class),
+                any(ReviewResultDelivery.class)))
+                .thenReturn(new ReviewResultPublishResult(
+                        PublishStatus.PUBLISHED, "{\"status\":\"PUBLISHED\"}",
+                        LocalDateTime.of(2026, 1, 1, 0, 0)));
+        doThrow(new ReviewHistoryConstraintException(
+                "comment_identity_mismatch"))
+                .when(historyService).ensurePublishHistory(
+                        any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+
+        ReviewResultResponse response = service.receiveResult(
+                1L, request(SHA, "COMPLETED", List.of(validFinding())));
+
+        assertFalse(response.duplicate());
+        assertEquals("PUBLISHED", response.publishStatus());
+        verify(publishService).publish(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+        verify(repository).save(any(ReviewResultDelivery.class));
+    }
+
+    @Test
+    void shouldContinueReturningDuplicateWhenPublishHistorySelfHealFails()
+            throws Exception {
+        List<ReviewResultFinding> findings = List.of(validFinding());
+        ReviewResultDelivery existing = delivery(
+                "COMPLETED", canonical(findings), PublishStatus.PUBLISHED);
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.of(existing));
+        doThrow(new ReviewHistoryConstraintException(
+                "comment_identity_mismatch"))
+                .when(historyService).ensurePublishHistory(
+                        any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+
+        ReviewResultResponse response = service.receiveResult(
+                1L, request(SHA, "COMPLETED", findings));
+
+        assertTrue(response.duplicate());
+        assertEquals("PUBLISHED", response.publishStatus());
+        verifyNoInteractions(publishService);
+        verify(historyService).ensureHistory(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+    }
+
+    @Test
+    void shouldStillRunPublishHistoryWhenHistoryReadFails() throws Exception {
+        List<ReviewResultFinding> findings = List.of(validFinding());
+        ReviewResultDelivery existing = delivery(
+                "COMPLETED", canonical(findings), PublishStatus.PUBLISHED);
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.of(existing));
+        doThrow(new DataAccessResourceFailureException("database down"))
+                .when(historyService).ensureHistory(any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+
+        ReviewResultResponse response = service.receiveResult(
+                1L, request(SHA, "COMPLETED", findings));
+
+        assertTrue(response.duplicate());
+        assertEquals("PUBLISHED", response.publishStatus());
+        verify(historyService).ensurePublishHistory(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+        verifyNoInteractions(publishService);
+    }
+
+    @Test
+    void shouldNotSwallowPublishFailures() {
+        when(reviewTaskService.getTaskById(1L)).thenReturn(task(SHA));
+        when(repository.findByTaskIdAndCommitSha(1L, SHA))
+                .thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(ReviewResultDelivery.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new IllegalStateException("publish failed"))
+                .when(publishService).publish(any(ReviewTask.class),
+                        any(ReviewResultDelivery.class));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.receiveResult(1L,
+                        request(SHA, "COMPLETED", List.of(validFinding()))));
+
+        verify(historyService).ensureHistory(any(ReviewTask.class),
+                any(ReviewResultDelivery.class));
+        verify(repository, never()).save(any(ReviewResultDelivery.class));
     }
 
     private ReviewResultDelivery delivery(String aiStatus, String findingsJson,
@@ -407,5 +638,14 @@ class ReviewResultServiceTest {
                                                    String suggestion) {
         return new ReviewResultFinding("BUG", "HIGH", 0.9, ruleId, title,
                 filePath, 1, 2, description, reason, suggestion, List.of());
+    }
+
+    private static DataIntegrityViolationException duplicateKeyFailure() {
+        return new DuplicateKeyException("duplicate key");
+    }
+
+    private static DataIntegrityViolationException nonUniqueFailure() {
+        return new DataIntegrityViolationException("not null",
+                new SQLException("not null", "23000", 1048));
     }
 }

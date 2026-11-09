@@ -1,5 +1,8 @@
 package cn.codesentinel;
 
+import cn.codesentinel.task.ReviewCommentRepository;
+import cn.codesentinel.task.ReviewFindingRepository;
+import cn.codesentinel.task.ReviewReportRepository;
 import cn.codesentinel.task.ReviewResultDeliveryRepository;
 import cn.codesentinel.task.ReviewTaskRepository;
 import org.junit.jupiter.api.Test;
@@ -21,6 +24,15 @@ class CodeSentinelApplicationTests {
 
     @MockBean
     private ReviewResultDeliveryRepository reviewResultDeliveryRepository;
+
+    @MockBean
+    private ReviewReportRepository reviewReportRepository;
+
+    @MockBean
+    private ReviewFindingRepository reviewFindingRepository;
+
+    @MockBean
+    private ReviewCommentRepository reviewCommentRepository;
 
     @MockBean
     private StringRedisTemplate stringRedisTemplate;
