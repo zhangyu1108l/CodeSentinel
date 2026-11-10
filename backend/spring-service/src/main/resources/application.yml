@@ -35,6 +35,8 @@ review:
       - py
   result:
     internal-token: ${REVIEW_RESULT_INTERNAL_TOKEN:}
+  history:
+    internal-token: ${REVIEW_HISTORY_INTERNAL_TOKEN:}
 
 github:
   app:

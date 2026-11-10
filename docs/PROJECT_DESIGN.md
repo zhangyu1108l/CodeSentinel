@@ -838,6 +838,10 @@ review_finding
 review_comment
 ```
 
+> 当前实际落地（Phase 10）：`review_task`（既有）、`review_result_delivery`（Phase 9）、
+> `review_report` / `review_finding` / `review_comment`（Phase 10）。
+> `github_installation` / `repository` / `pull_request` 尚未实现，保留为后续设计。
+
 关系：
 
 ```text
@@ -870,18 +874,26 @@ github_installation
 
 ---
 
-# 17. 核心表建议
+# 17. 核心表定义（以实际 DDL 为准）
 
-## review_task
+> 历史记录三张表以 `backend/spring-service/src/main/resources/db/review_history.sql`
+> 及对应 Entity 为唯一事实依据（Phase 10.1~10.6.3 实际实现）。
+> `review_task` 是 Phase 10 之前的既有表，本阶段未改造，字段以 `ReviewTask`
+> Entity 为准。本节早期建议字段已全部按实际实现替换，不再保留与当前代码
+> 不一致的字段说明。
+
+## review_task（既有表，Phase 10 未改造）
+
+字段以 `ReviewTask` Entity 为准：
 
 ```text
 id
-repository_id
+owner
+repo
 pr_number
 commit_sha
 status
-started_at
-completed_at
+retry_count
 error_message
 created_at
 updated_at
@@ -900,57 +912,133 @@ FAILED
 
 ## review_report
 
+用途：一条 review task 对应一条结构化历史报告。
+
+| 字段 | 类型 | NULL | 说明 |
+|---|---|---|---|
+| `id` | `BIGINT AUTO_INCREMENT` | NOT NULL | 主键 |
+| `task_id` | `BIGINT` | NOT NULL | 关联 `review_task.id`（逻辑关联，无物理外键）；唯一 |
+| `commit_sha` | `CHAR(40)` | NOT NULL | 被审查提交的完整 SHA |
+| `ai_status` | `VARCHAR(20)` | NOT NULL | 应用层允许 `COMPLETED` / `DEGRADED` |
+| `publish_status` | `VARCHAR(20)` | NOT NULL | 应用层枚举 `PENDING` / `PUBLISHED` / `PARTIAL` / `FAILED`，`EnumType.STRING` |
+| `finding_count` | `INT` | NOT NULL | 该 report 对应的 `review_finding` 行数 |
+| `published_comment_count` | `INT` | NOT NULL | 已确认发布的 inline comment 行数；不包含 summary comment |
+| `summary_comment_id` | `BIGINT` | NULL | `NULL` 表示没有可用的 summary comment id |
+| `published_at` | `DATETIME(6)` | NULL | 至少 1 个发布项确认成功时非 NULL |
+| `created_at` | `DATETIME(6)` | NOT NULL | 创建时间 |
+| `updated_at` | `DATETIME(6)` | NOT NULL | 更新时间 |
+
+约束与索引：
+
 ```text
-id
-task_id
-total_findings
-critical_count
-high_count
-medium_count
-low_count
-summary
-created_at
+PRIMARY KEY (id)
+UNIQUE KEY uk_review_report_task (task_id)
+ENGINE = InnoDB
+DEFAULT CHARSET = utf8mb4
 ```
 
 ---
 
 ## review_finding
 
+用途：保存一条 review report 的 finding 快照。
+
+| 字段 | 类型 | NULL | 说明 |
+|---|---|---|---|
+| `id` | `BIGINT AUTO_INCREMENT` | NOT NULL | 主键 |
+| `report_id` | `BIGINT` | NOT NULL | 关联 `review_report.id`（逻辑关联，无物理外键） |
+| `ordinal` | `INT` | NOT NULL | 该 finding 在存储快照数组中的 **0-based** 索引，也是幂等写入的稳定身份 |
+| `category` | `VARCHAR(20)` | NOT NULL | 应用层允许 `BUG` / `SECURITY` / `PERFORMANCE` / `QUALITY` |
+| `severity` | `VARCHAR(20)` | NOT NULL | 应用层允许 `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` / `INFO` |
+| `confidence` | `DOUBLE` | NOT NULL | 置信度，应用层约束为 `0.0`~`1.0` |
+| `rule_id` | `VARCHAR(255)` | NOT NULL | 规则标识 |
+| `title` | `VARCHAR(1000)` | NOT NULL | finding 标题 |
+| `file_path` | `VARCHAR(1024)` | NOT NULL | 文件路径 |
+| `start_line` | `INT` | NOT NULL | 起始行 |
+| `end_line` | `INT` | NOT NULL | 结束行 |
+| `description` | `TEXT` | NOT NULL | 问题描述 |
+| `reason` | `TEXT` | NOT NULL | 证据与原因 |
+| `suggestion` | `TEXT` | NOT NULL | 修复建议 |
+| `references_json` | `TEXT` | NULL | JSON 数组；元素允许为 `null`，保留快照原始内容 |
+| `created_at` | `DATETIME(6)` | NOT NULL | 创建时间 |
+
+约束与索引：
+
 ```text
-id
-report_id
-category
-severity
-rule_id
-title
-description
-file_path
-start_line
-end_line
-code_snippet
-reason
-suggestion
-confidence
-status
-created_at
+PRIMARY KEY (id)
+UNIQUE KEY uk_review_finding_report_ordinal (report_id, ordinal)
+ENGINE = InnoDB
+DEFAULT CHARSET = utf8mb4
 ```
+
+`ordinal` 从 `0` 开始，对应 `review_result_delivery.findings_json` 数组下标；
+唯一键 `(report_id, ordinal)` 同时承担幂等写入和重复 finding 防护。
 
 ---
 
 ## review_comment
 
+用途：保存一条已确认成功创建的 GitHub inline review comment。
+
+| 字段 | 类型 | NULL | 说明 |
+|---|---|---|---|
+| `id` | `BIGINT AUTO_INCREMENT` | NOT NULL | 主键 |
+| `report_id` | `BIGINT` | NOT NULL | 关联 `review_report.id`（逻辑关联，无物理外键） |
+| `finding_ordinal` | `INT` | NOT NULL | 逻辑关联 `review_finding(report_id, ordinal)`；**不是**物理外键，且不是 finding 的主键 `id` |
+| `github_comment_id` | `BIGINT` | NULL | GitHub 返回的 comment id；仅在“确认已发布但没有可用 id”的防御性场景为 `NULL` |
+| `file_path` | `VARCHAR(1024)` | NOT NULL | 评论定位文件路径 |
+| `start_line` | `INT` | NOT NULL | 评论起始行 |
+| `end_line` | `INT` | NOT NULL | 评论结束行 |
+| `created_at` | `DATETIME(6)` | NOT NULL | 创建时间 |
+
+约束与索引：
+
 ```text
-id
-finding_id
-github_comment_id
-file_path
-line
-side
-commit_sha
-comment_body
-status
-created_at
+PRIMARY KEY (id)
+UNIQUE KEY uk_review_comment_report_finding (report_id, finding_ordinal)
+UNIQUE KEY uk_review_comment_github_id (github_comment_id)
+ENGINE = InnoDB
+DEFAULT CHARSET = utf8mb4
 ```
+
+NULL 语义：
+
+- `github_comment_id` 允许 **多个 NULL** 并存；MySQL 唯一索引不把多个 `NULL` 视为重复值。
+- 非 NULL 的 `github_comment_id` 必须全局唯一。
+- `review_comment` 只保存 `PUBLISHED` 的 inline comment；`SKIPPED` / `FAILED` 项保留在
+  `review_result_delivery.publish_outcome_json`，不写入本表。
+
+---
+
+## 当前写入与查询行为
+
+```text
+首次接收结果
+  → 校验并持久化 review_result_delivery（PENDING）
+  → ensureHistory：best-effort 写 review_report + review_finding
+  → 同步发布 GitHub summary / inline comments
+  → 更新 delivery 的 publish_status / publish_outcome_json / published_at
+  → ensurePublishHistory：best-effort 写 review_comment 并回写 review_report
+```
+
+- 相同结果再次投递不会重新发布，只会 best-effort 执行 `ensureHistory` /
+  `ensurePublishHistory`，可补齐部分缺失的历史行。
+- 历史写入失败会被隔离并记录 ERROR 日志，不阻断接收、发布或 delivery 更新；
+  当前没有定时补偿、自动回填或独立重试任务（详见 `DEVELOPMENT_STATUS.md`
+  “Phase 10 MVP 已接受的历史记录可靠性边界”）。
+- 结构化历史查询在 report 不存在时返回 404；在 report 计数与
+  finding/comment 实际行数不一致时返回 409（`review_history_incomplete`），
+  不返回部分数据。
+- 三张表之间 **没有物理外键**，关系全部由应用层维护；索引仅为上述主键与唯一键。
+
+## 实现与验证状态（Phase 10.6.3）
+
+- 10.1~10.6.3 已实现；当前改动尚未提交/合并。
+- 实际验证（2026-11-06）：39 个单元测试类共 445 项，7 个 MySQL 集成测试类共 50 项，0 失败 / 0 错误 / 0 跳过；`mvn -Pmysql-it clean verify` 为 BUILD SUCCESS。MySQL 版本固定为 8.0.46，使用 Testcontainers 2.0.3。
+- 唯一键冲突分类：仅 `DuplicateKeyException` 或 `SQLException(errorCode=1062, SQLState=23000)` 被视为唯一键冲突；其他 `DataIntegrityViolationException` 原样重抛，不触发幂等重读。唯一键冲突只有在重新读取并确认目标行身份一致后才按幂等成功处理。
+- 真实 MySQL 覆盖：`ReviewHistoryMySqlConstraintIT` 的 U1~U6 验证三张历史表与 `review_result_delivery` 的真实 1062；`ReviewResultDeliveryMySqlRaceIT` 验证真实并发 1062 → Service catch → 重读；`ReviewHistoryMySqlL1IT` 通过测试专用代理注入非唯一键 1048，验证四个入口均原样重抛；`ReviewHistoryMySqlWriteIT` 的 T5 验证中途失败后已提交 comment 保留、report 未更新，解除故障后重试收敛。
+- 可靠性边界仍按上文 best-effort 语义：没有定时补偿、自动回填或独立重试；404/409 只是当前查询状态，不代表系统已经自动恢复。字段超长、JSON 解析失败、finding/comment 身份不一致等确定性校验错误需要修正输入或人工处理。
+- 真实 GitHub E2E 发布验证仍未执行；`mvn test` 默认不执行 `*IT`，MySQL IT 需要 Docker/Testcontainers 环境。
 
 ---
 
@@ -1354,6 +1442,8 @@ CodeSentinel
 ---
 
 ## Phase 10：数据库与历史审查
+
+> 实现状态：10.1~10.6.3 已完成并验证（445 单元 + 50 MySQL IT）；L-1 已关闭；改动尚未提交/合并；真实 GitHub E2E 未执行。
 
 完整保存：
 

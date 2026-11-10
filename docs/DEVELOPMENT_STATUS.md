@@ -19,11 +19,11 @@
 
 ## 当前阶段
 
-**Phase 8：LangGraph Multi-Agent — ✅ 已完成（2026-10-12 用户确认；8.1~8.9 全部实现并推送至 PR #6，HEAD `071a2ff`；最终全量 2698 passed / 8 skipped；生产路由切换与真实环境联调为明示的后续决策项）**
+**Phase 10：MySQL 历史记录 — 🟡 进行中（10.1~10.6.3 已完成并通过实际代码/测试报告核对；445 项单元测试 + 50 项 MySQL 集成测试通过；L-1 已关闭；Phase 10 改动尚未提交）**
 
 ## 当前任务
 
-Phase 7 已正式验收通过并合并至 `main`（PR #5，merge commit `d305b47`，2026-10-11；PMD 7.28.0 / Checkstyle 14.3.0 真实联调通过；Ruff / Bandit / Semgrep 真实联调待完成，已知边界）。**Phase 8（LangGraph Multi-Agent）已完成（2026-10-12，用户确认）**：8.1~8.9 全部实现并提交推送至 `feature/phase8-langgraph-multi-agent`（HEAD `071a2ff`，20 commits，本地与远端一致），最终默认全量 **2698 passed / 8 skipped / 1 warning**（live 全部 opt-in 跳过、出站网络默认阻断）；PR #6 OPEN / MERGEABLE / mergeStateStatus CLEAN，待仓库所有者评审合并。生产路由切换、真实静态工具/真实 DeepSeek 联调、评测集实测与 Validator 语义闸门（§9.6）为**明示的后续决策项**，不影响本阶段完成判定（详见记录 2026-10-11 (4)~(11) 与 2026-10-12）。
+Phase 9 已合并至 `main`（PR #7，merge commit `ccfaecc`，2026-10-13；9.5.3B1/B2/C 全部实现；**真实 GitHub E2E 发布验证仍未执行**，保留为后续验证项）。Phase 10 已在 `feature/phase10-mysql-history` 分支完成实施：10.1 手工 DDL、10.2 实体/Repository、10.3 接收流结构化写入、10.4 发布结果写入、10.5 查询 API、10.6.2 真实 MySQL 集成测试、10.6.3 唯一键冲突分类与幂等加固均已完成。最新实际验证（2026-11-06）：`mvn -Pmysql-it clean verify` = 39 个单元测试类 445 项 + 7 个 MySQL IT 类 50 项，0 失败/0 错误/0 跳过，BUILD SUCCESS。10.6.3 的两个真实 MySQL 缺口已补齐并有测试证据：delivery 真实 1062（U6）与真实并发 1062 → Service catch → 幂等重读（`ReviewResultDeliveryMySqlRaceIT`）；L-1 已关闭。下一步按 §30.1 提交/推送/创建 PR（需用户决策）。
 
 ## 当前总体进度
 
@@ -35,9 +35,9 @@ Phase 4  Review Task + Redis      ✅ 已完成
 Phase 5  Python AI Service        ✅ 已完成
 Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验收通过）
 Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
-Phase 8  LangGraph Multi-Agent    ✅ 已完成（2026-10-12 用户确认；8.1~8.9 实现并推送至 PR #6，HEAD `071a2ff`；全量 2698 passed / 8 skipped；生产切换为后续决策项）
-Phase 9  GitHub 评论              🟡 进行中（9.5.3B1/B2/C 已实现并通过全量回归；PR #7 OPEN 待合并；真实 GitHub E2E 未执行）
-Phase 10 MySQL 历史记录           ⬜ 未开始
+Phase 8  LangGraph Multi-Agent    ✅ 已完成并合并 main（PR #6 / merge `87c8d31`；2026-10-12 用户确认；8.1~8.9；全量 2698 passed / 8 skipped）
+Phase 9  GitHub 评论              ✅ 已完成并合并 main（PR #7 / merge `ccfaecc`；9.5.3B1/B2/C；真实 GitHub E2E 未执行，保留为后续验证项）
+Phase 10 MySQL 历史记录           🟡 进行中（10.1~10.6.3 已完成并验证；445 单元 + 50 MySQL IT；L-1 已关闭；未提交）
 ```
 
 ---
@@ -1393,14 +1393,14 @@ PR Summary
 
 ## 子任务
 
-- [ ] PR Summary Generator
-- [ ] Inline Comment Builder
-- [ ] Line Mapping
-- [ ] Commit SHA 映射
-- [ ] GitHub Comment API
-- [ ] Comment 失败处理
-- [ ] Comment 幂等
-- [ ] 无法定位行时的降级策略
+- [x] PR Summary Generator
+- [x] Inline Comment Builder
+- [x] Line Mapping
+- [x] Commit SHA 映射
+- [x] GitHub Comment API
+- [x] Comment 失败处理
+- [x] Comment 幂等
+- [x] 无法定位行时的降级策略
 
 ## MVP 输出
 
@@ -1417,7 +1417,7 @@ REQUEST_CHANGES
 
 ## Phase 9 状态
 
-**🟡 进行中（9.5.3B1/B2/C 已实现并通过全量回归；PR #7 OPEN 待合并；真实 GitHub E2E 未执行）**
+**✅ 已完成并合并 main（2026-10-13；PR #7 / merge commit `ccfaecc`；9.5.3B1/B2/C 全部实现并通过自动化回归；真实 GitHub E2E 发布验证未执行，保留为后续验证项）**
 
 9.5.3B1 已完成（2026-10-13 验收）：
 
@@ -1433,13 +1433,13 @@ REQUEST_CHANGES
 - HTTP 语义：202/200 成功；409 返回冲突标识（已有结果保留、不覆盖）；401/422/其他/5xx/网络异常与超时抛出进入既有有界重试；令牌未配置时安全失败、不发出请求
 - 语义：DEGRADED 经 `ai_status` 写入 `review_result_delivery`；Java `review_task.status` 仍为 COMPLETED（不新增 DEGRADED 状态）
 
-9.5.3C 实现完成（2026-10-13，测试通过、待验收）：
+9.5.3C 实现完成（2026-10-13，测试通过；随后随 PR #7 合并）：
 
 - 同步发布接线：首次接收成功后调用 `ReviewResultPublishService` 发布 Inline Comments（`ReviewCommentPublisher`）与 PR Summary（`GithubIssueCommentClient` + `ReviewSummaryMarkdownBuilder`）；duplicate 不重复发布；`publish_status` 返回并持久化实际状态
 - 状态判定：全成功→PUBLISHED；有成功项且存在失败/跳过/不确定→PARTIAL；无成功项且无不确定性→FAILED；transport 级失败计为"外部副作用不确定"（PARTIAL，已知成功不丢弃）；setup 失败（token/files）→FAILED 且无评论 POST
 - 持久化：`publish_outcome_json`（逐项 filePath/行号/status/reason/commentId + summary 结果）、`published_at`（仅≥1 项确认发布时写入）；B1 冻结字段不变
 
-未完成（不得提前标记）：
+后续验证项（不阻塞代码合并）：
 
 - 真实 GitHub E2E 发布验证（需出网与用户授权，另行安排）
 
@@ -1447,7 +1447,7 @@ REQUEST_CHANGES
 
 ## 当前任务
 
-Phase 9 已推送并创建 PR #7（OPEN，待审查/合并）；下一步为真实 GitHub E2E 发布验证（需授权，未执行）；合并后按 §30.1 从最新 main 创建 `feature/phase10-mysql-history`。
+Phase 9 已合并，当前进入 Phase 10；真实 GitHub E2E 发布验证仍为后续验证项（需出网与用户授权），不阻塞 Phase 9 代码合并。Phase 10 在 `feature/phase10-mysql-history` 分支推进至 10.6.3 并完成验证；下一步为提交/PR 决策（需用户确认）。
 
 ## 阻塞问题
 
@@ -1457,47 +1457,79 @@ Phase 9 已推送并创建 PR #7（OPEN，待审查/合并）；下一步为真�
 
 # 13. Phase 10：MySQL 历史记录
 
-## 核心表
+## 核心表（实际状态）
 
 ```text
-github_installation
-repository
-pull_request
-review_task
+本阶段已实现：
 review_report
 review_finding
 review_comment
+
+既有、本阶段未改造：
+review_task
+review_result_delivery
+
+尚未实现：
+github_installation
+repository
+pull_request
 ```
 
 ## 子任务
 
-- [ ] 数据库 Schema
-- [ ] Migration
-- [ ] Entity / Model
-- [ ] Repository
-- [ ] Service
-- [ ] Review Report 保存
-- [ ] Finding 保存
-- [ ] Comment 保存
-- [ ] Review 查询 API
-- [ ] 历史 Review 查询
+- [x] 数据库 Schema（`review_history.sql` 手工 DDL，无迁移工具）
+- [ ] Migration（明确不引入迁移工具；生产库需手工执行 DDL）
+- [x] Entity / Model
+- [x] Repository
+- [x] Service
+- [x] Review Report 保存
+- [x] Finding 保存
+- [x] Comment 保存
+- [x] Review 查询 API
+- [x] 历史 Review 查询
+
+## Phase 10 子阶段
+
+- [x] **10.1 历史表 Schema + 手工 DDL**：`review_report` / `review_finding` / `review_comment`，InnoDB + utf8mb4，报告 `task_id` 唯一、finding `(report_id, ordinal)` 唯一、comment `(report_id, finding_ordinal)` 唯一、`github_comment_id` 非空唯一且允许多 NULL；未修改 `review_task` / `review_result_delivery`
+- [x] **10.2 Entity / Repository**：`ReviewReport` / `ReviewFinding` / `ReviewComment` 与三个 Repository；真实 JPA 映射（CHAR(40) / DATETIME(6) / TEXT / DOUBLE / EnumType.STRING / nullable）
+- [x] **10.3 接收流结构化写入**：`ReviewHistoryService.ensureHistory` 幂等创建 report/findings；长度校验前置；0-based 快照 ordinal；中断后按缺失 ordinal 自愈；失败隔离，不改变 Phase 9 接收/发布语义
+- [x] **10.4 发布结果写入**：`ensurePublishHistory` 仅保存 PUBLISHED 评论项；回写 report 的 `publish_status` / `published_comment_count` / `summary_comment_id` / `published_at`；失败隔离
+- [x] **10.5 查询 API**：`GET /api/reviews/{taskId}`、`/findings`、`/comments`；独立服务级内部令牌 fail-closed；分页上限 100；404/400/409/500 安全语义；REPEATABLE_READ 只读事务 + 计数一致性闸门
+- [x] **10.6.2 真实 MySQL 集成测试**：Testcontainers `mysql:8.0.46`；44 项 IT（映射/约束/写入/查询/并发/T5 故障注入与重试收敛）；428 项单元测试通过（10.6.2 阶段结果；10.6.3 已扩展为 50 项 IT / 445 项单元测试）
+- [x] **10.6.3 唯一键冲突分类与幂等加固**：`UniqueKeyViolationClassifier` 接入四个 catch；非唯一键原始异常重抛；finding 完整内容身份校验；真实 1062 + 四入口非唯一键故障注入；delivery 真实 1062（U6）+ 真实并发 1062 → Service catch → 幂等重读（`ReviewResultDeliveryMySqlRaceIT`）；50 项 IT / 445 项单元测试通过
 
 ## Phase 10 状态
 
-**⬜ 未开始（调查与最小设计已完成；待 Phase 9 PR #7 合并后按 §30.1 从 main 创建 `feature/phase10-mysql-history`）**
+**🟡 进行中（10.1~10.6.3 已完成并通过实际代码/测试报告核对；445 单元 + 50 MySQL 集成测试通过；L-1 已关闭；改动未提交）**
+
+### Phase 10 MVP 已接受的历史记录可靠性边界
+
+Phase 10 的结构化历史记录采用 best-effort 写入策略。以下是 MVP 阶段明确接受的产品限制，不代表系统已经实现自动恢复：
+
+1. 历史写入采用 best-effort 策略：首次接收路径调用 `ensureHistory`，发布终态路径调用 `ensurePublishHistory`。
+2. `ensureHistorySafely` 失败时会记录 ERROR 日志，但不会阻断原有的接收、发布和 delivery 更新流程。
+3. `ensurePublishHistorySafely` 失败时同样不会改变原有发布流程，只记录 ERROR 日志。
+4. 历史报告和 finding 可能出现部分写入：例如 `review_report` 已创建、部分 `review_finding` 已提交，后续 finding 写入失败。
+5. 发布 comment 已写入但 report 更新失败时，`review_report.published_comment_count` 与实际 comment 行数可能不一致，结构化历史查询会因计数闸门返回 409（`review_history_incomplete`），而不是返回部分数据。
+6. 后续相同结果再次投递（相同 task、commit 和 payload）会再次 best-effort 调用 `ensureHistory` / `ensurePublishHistory`，可以触发部分历史数据的自愈；不会重新发布 GitHub 评论。
+7. 当前没有定时补偿、自动回填或独立重试任务；系统不保证失败后自动收敛。
+8. 字段超长、JSON 解析失败、finding/comment 身份不一致等确定性校验错误不会通过简单重试解决，需要修正输入或人工处理。
+9. MVP 阶段接受上述限制。
+10. 不承诺历史记录自动最终一致。
+
+补充说明：
+
+- `review_result_delivery` 仍然是已接收结果的原始记录（包含 `findings_json` / `publish_outcome_json`）；结构化历史是从该记录派生的数据，不是唯一结果来源。
+- 结构化历史查询可能返回 404（report 不存在）或 409（report 计数与实际 finding/comment 行数不一致）。这两个响应只表示当前查询状态，不代表系统已经自动恢复或完成补偿。
+- 不得把上述 404/409 描述成系统已经自动恢复。
 
 ## 当前任务
 
-调查与最小设计已完成（以实际代码为准，见记录 2026-10-13 (4)）：
-
-- 目标：结构化历史保存与查询（`review_report` 1:1 task / `review_finding` / `review_comment`）+ `/api/reviews/**` 查询 API（AGENTS §23）
-- 边界与关系：`review_result_delivery` 保持"接收/重放缓冲"（契约冻结、不改）；结构化表为查询模型；过渡期允许快照与结构化并存（发布流程同时更新两者），收敛留给后续阶段
-- 现库事实：`review_task` 无 `(owner, repo, pr_number, commit_sha)` 唯一键、无查询索引（仅 PK）；治理项在 10.1 评估（新增索引 / 可选唯一键，需批准）
-- 任务拆分：10.1 Schema + 手工 DDL → 10.2 实体/Repository → 10.3 接收流结构化写入（幂等、duplicate 自愈）→ 10.4 发布结果写入（comment 行 + 报告发布状态）→ 10.5 查询 API（单条 / Findings / 分页列表）→ 10.6 测试与真库验证
+Phase 10.6.3 已完成并通过实际代码/测试报告核对（2026-11-06：445 单元 + 50 MySQL IT，0 失败/0 错误/0 跳过）；L-1 已关闭。下一步按 §30.1 提交/推送/创建 PR（需用户决策）；合并后再进行 Phase 10 收尾与 Phase 11 决策。真实 GitHub E2E（Phase 9）仍未执行。
 
 ## 阻塞问题
 
-等待 Phase 9 PR #7 合并；合并前不创建 Phase 10 分支、不向 Phase 9 分支提交 Phase 10 代码。
+暂无技术阻塞。当前待办是 Phase 10 提交/PR 决策；Phase 10 改动尚未提交。
 
 ---
 
@@ -1566,7 +1598,7 @@ test-cases/
 
 ## 当前状态
 
-**⬜ 测试集尚未建立**
+**🟡 基础已建立（Phase 8.8）：`test-cases/` 含 8 个最小用例（Java / Python × Bug / Security / Performance / Quality），`agent/app/evaluation/` 提供 loader / models / metrics；尚未用真实 Reviewer 输出回放，未定义质量阈值，不构成评测结论。**
 
 ---
 
@@ -1643,25 +1675,62 @@ Sandbox
 
 # 18. 当前已知问题
 
-Phase 6（Code Context）相关：
-
-- [ ] Code Context 尚未接入真实 PR 数据
-  - 影响：`handler.py` 仍传 `files=[]`，`prompts/review.py` 仍声明 "no file content or diff"，LLM 看不到真实代码；Phase 5 链路行为未变
-  - 原因：Java 侧尚无 PR Context 只读接口，Python 侧尚无 `PrContextClient`，`CodeContextBuilder` 装配与 `ReviewService` 接线未实现
-  - 临时方案：无（6.1~6.5 的构建链可离线验证，真实数据接入属 Phase 6 收尾）
-  - 最终方案：Java `GET /pulls/{n}/files`（分页 + binary / 大小保护）→ Python client → `CodeContextBuilder` → `ReviewService`（取码失败降级 `degraded`，不得触发 Phase 4 无限重试）→ Prompt 渲染 → 真实 PR 联调
-
-- [ ] 未实现 Context Size Control / Token 控制
-  - 影响：成员很多的类会产出大量 related code（实测 `agent/app/config/settings.py` 单文件 18 条），嵌套类型的 `code` 为完整 body；接入 Prompt 后容易膨胀并挤占预算
-  - 原因：按阶段边界刻意未实现（属 Phase 6.6）
-  - 临时方案：无
-  - 最终方案：在装配层加入文件数 / 单文件字节 / 总字符预算与截断记录（`truncation.applied` / `dropped_files`），且截断必须在 Prompt 中显式声明
+Phase 6（Code Context）相关：此前记录的“未接入真实 PR 数据 / 未实现 Context Size Control”均已关闭（6.7.1~6.7.6 完成并合并 main）。仍保留的限制：
 
 - [ ] `_anchors` 只探测每个 changed range 的首尾两行
   - 影响：单个区间跨越 3 个及以上类型时，中间类型可能漏成 anchor，其成员不会进入 related code（只影响完整性，不产生错误项）
   - 原因：为控制实现复杂度，锚点探测只取区间端点
   - 临时方案：无
   - 最终方案：需要时对区间覆盖行抽样/逐行探测，或建立"行 → 类型"映射
+
+- [ ] Imports / namespace / package 分析未实现
+  - 影响：跨文件依赖与导入关系不进入 Code Context
+  - 原因：Phase 6 范围限定为当前 FileContext 的结构证据
+  - 临时方案：无
+  - 最终方案：后续按需增加跨文件符号索引
+
+Phase 9（GitHub 评论）相关：
+
+- [ ] 真实 GitHub E2E 发布验证未执行
+  - 影响：PR Summary / Inline Comment 的真实外部副作用（权限、速率限制、行锚定漂移）尚未在真实 PR 上验证
+  - 原因：需要出网与用户授权，按阶段边界后置
+  - 临时方案：已用 MockRestServiceServer 与单元测试覆盖请求构造、状态判定与失败语义
+  - 最终方案：在测试仓库执行一次受控真实发布验证
+
+Phase 10（MySQL 历史记录）相关：
+
+- [ ] Phase 10 改动尚未提交
+  - 影响：当前 9 个已跟踪修改 + 42 个未跟踪文件仅存在于工作区，尚未形成可审查 PR
+  - 原因：按用户要求，Phase 10 完成验证后再决定提交/PR
+  - 临时方案：无
+  - 最终方案：按 §30.1 提交并创建 PR（需用户决策）
+
+- [x] L-1（非唯一键异常误吞）已关闭（Phase 10.6.3，2026-11-06 复核）
+  - 关闭证据：`UniqueKeyViolationClassifier` 仅接受 `DuplicateKeyException` 或 `SQLException(1062, "23000")`；delivery / report / finding / comment 四个 catch 均先分类，非唯一键异常原样重抛，不再触发幂等重读；唯一键冲突只有在重新读取并确认目标行身份后才按幂等成功处理
+  - 测试证据：`UniqueKeyViolationClassifierTest` 12 项分类用例；`ReviewHistoryMySqlConstraintIT` U1~U6 真实 MySQL 1062；`ReviewResultDeliveryMySqlRaceIT` 真实并发 1062 → Service catch → 重读；`ReviewHistoryMySqlL1IT` 四入口非唯一键 1048 注入；`ReviewHistoryMySqlWriteIT` T5 中途失败 + 重试收敛
+  - 验证结果：445 单元 + 50 MySQL IT，0 失败/0 错误/0 跳过
+
+- [ ] 既有 3 条 `review_result_delivery` 没有结构化历史
+  - 影响：当前 `review_report=0`，这些历史任务通过 `/api/reviews/{taskId}` 查询会得到 404
+  - 原因：结构化写入从 Phase 10.3 起仅对新接收结果生效，未做历史回填
+  - 临时方案：无
+  - 最终方案：如需要，单独设计一次性回填（不属于当前 Phase）
+
+- [ ] 查询 API 使用服务级共享内部令牌
+  - 影响：`REVIEW_HISTORY_INTERNAL_TOKEN` 不是用户级授权，不能直接暴露给浏览器前端
+  - 原因：MVP 不实现多租户 / 用户权限体系
+  - 临时方案：仅限服务间调用
+  - 最终方案：Dashboard 阶段再设计用户级鉴权
+
+- [x] Phase 10.6.3 测试覆盖缺口（本轮已关闭）
+  - 关闭证据：`ReviewHistoryMySqlConstraintIT.u6DuplicateDeliveryTaskCommitIsRejectedWithMySql1062` 对 delivery 的 `(task_id, commit_sha)` 唯一键执行真实 MySQL 重复插入，断言 `DataIntegrityViolationException` → 最具体原因 `SQLException(errorCode=1062, SQLState=23000)` → 分类器识别 → 仅 1 行；`ReviewResultDeliveryMySqlRaceIT` 使用真实 `ReviewResultService` + 真实 Repository + 两线程 `CyclicBarrier`，确定性产生真实 1062，失败线程进入 Service catch 并重读，最终 1 条 delivery、1 次 publish
+  - 说明：`ReviewHistoryMySqlL1IT` 仍是测试专用 Repository 代理注入非唯一键异常（1048）的回归测试，不作为真实 1062 证据
+
+- [ ] MySQL IT 依赖 Docker Desktop 环境
+  - 影响：`mvn test` 默认不执行 `*IT`；`mvn -Pmysql-it verify` 在本机需要设置 `DOCKER_HOST=npipe:////./pipe/dockerDesktopLinuxEngine`
+  - 原因：Testcontainers 2.0.3 + Docker Desktop 的本地连接方式
+  - 临时方案：按上述命令显式运行
+  - 最终方案：CI 环境固定 Docker endpoint 并纳入流水线
 
 Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 
@@ -1694,6 +1763,162 @@ Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 ---
 
 ## 开发记录
+
+### 2026-11-06
+
+Phase 10.6.3 文档同步与最终核对：以当前代码、实际测试实现和重新执行的测试结果为准，确认 10.6.3 已完成，L-1 关闭；本轮只修改文档与 Java Javadoc，未修改业务逻辑、测试代码或配置文件。
+
+核对结论：
+
+- 唯一键冲突分类：`UniqueKeyViolationClassifier` 只接受 `DuplicateKeyException` 或 `SQLException(errorCode=1062, SQLState=23000)`（支持嵌套 cause、检测循环、不解析 message）。
+- 四入口处理：`ReviewResultService.receiveResult`、`ReviewHistoryService.insertReportSafely` / `insertFindingSafely` / `insertCommentSafely` 均先分类；非唯一键异常原样重抛；唯一键冲突后重新读取目标行，finding 使用完整内容身份、comment 使用 ordinal + file/line 身份确认，未确认则重抛原异常。
+- 真实 MySQL 覆盖：`ReviewHistoryMySqlConstraintIT` U1~U4（历史三表）与 U6（`review_result_delivery(task_id, commit_sha)`）断言真实 1062 / SQLState 23000；`ReviewResultDeliveryMySqlRaceIT` 两线程 `CyclicBarrier` + 真实 Repository 产生真实 1062，失败线程进入 Service catch 并重读，最终 1 条 delivery、1 次 publish；`ReviewHistoryMySqlL1IT` 四入口注入非唯一键 1048，验证不重读且原样重抛；`ReviewHistoryMySqlWriteIT` T5 验证中途失败后已提交 comment 保留、report 未更新，解除故障后重试收敛。
+- 单元覆盖：`UniqueKeyViolationClassifierTest` 12 项；`ReviewResultServiceTest` 24 项；`ReviewHistoryServiceTest` 57 项，均包含非唯一键重抛与身份不匹配重抛分支。
+
+实际执行（2026-11-06，`DOCKER_HOST=npipe:////./pipe/dockerDesktopLinuxEngine`）：
+
+```text
+mvn -Pmysql-it clean verify
+EXIT=0 / BUILD SUCCESS
+单元测试：39 个测试类，445 项，0 failed / 0 errors / 0 skipped
+集成测试：7 个测试类，50 项，0 failed / 0 errors / 0 skipped
+```
+
+MySQL IT 分布：
+
+```text
+ReviewHistoryMySqlConcurrencyIT   3
+ReviewHistoryMySqlConstraintIT    6
+ReviewHistoryMySqlL1IT            4
+ReviewHistoryMySqlMappingIT       7
+ReviewHistoryMySqlQueryIT        12
+ReviewHistoryMySqlWriteIT        17
+ReviewResultDeliveryMySqlRaceIT   1
+合计                              50
+```
+
+说明：测试日志中的 `SQL Error: 1062` 是并发/唯一键用例的预期数据库拒绝，不是测试失败；本次运行最终为 BUILD SUCCESS。
+
+文档同步：
+
+- `docs/DEVELOPMENT_STATUS.md`：将 10.6.3 从“待审查”更新为“已完成并通过实际测试报告核对”，关闭 L-1，统一当前测试数量为 445 单元 + 50 MySQL IT。
+- `docs/PROJECT_DESIGN.md`：补充 Phase 10 实现/验证状态、唯一键分类与可靠性边界，保持与 DDL、Entity 和实际测试一致。
+- `ReviewResultService` / `ReviewResultController` Javadoc：补充 L-1 分类/重抛规则与 best-effort 历史写入边界；未改业务逻辑。
+
+本轮未修改：业务逻辑、测试代码、`pom.xml`、`application.yml`、DDL、`.env.example`；未执行 git commit/push/merge/reset/clean/checkout；未删除文件。`mvn -Pmysql-it clean verify` 中的 `clean` 仅为 Maven 构建清理，不是 Git 操作。
+
+Git 状态（修改前基线，2026-11-06）：
+
+```text
+分支: feature/phase10-mysql-history
+HEAD: ccfaecc23b5340d0a7a8d012f283b59020e345c0
+已跟踪修改: 9
+未跟踪文件: 42
+```
+
+Phase 10 可靠性边界保持不变：结构化历史仍是 best-effort；历史写入失败只记录 ERROR 日志，不改变接收/发布/delivery 更新语义；没有定时补偿、自动回填或独立重试；404/409 只是当前查询状态，不代表自动恢复；真实 GitHub E2E 未执行。
+
+### 2026-11-05
+
+> 本记录是 2026-11-05 的阶段快照。2026-11-06 已完成 10.6.3 最终核对，L-1 正式关闭；当前状态以顶部状态和 2026-11-06 记录为准。
+
+Phase 10（MySQL 历史记录）10.1~10.6.3 实施完成；Phase 9 已合并 `main`。当时 Phase 10 改动未提交，10.6.3 待最终核对。
+
+已完成：
+
+- [x] **Phase 9 合并**：PR #7 已合并至 `main`（merge commit `ccfaecc`）；9.5.3B1/B2/C 行为保持不变；真实 GitHub E2E 仍未执行
+- [x] **10.1**：`db/review_history.sql` 手工 DDL；`review_report`（`task_id` 唯一）、`review_finding`（`(report_id, ordinal)` 唯一）、`review_comment`（`(report_id, finding_ordinal)` 唯一 + `github_comment_id` 非空唯一、多 NULL 允许）；InnoDB / utf8mb4；未修改 `review_task`、`review_result_delivery`
+- [x] **10.2**：`ReviewReport` / `ReviewFinding` / `ReviewComment` 实体与三个 Repository；真实 JPA 映射测试覆盖 CHAR(40)、DATETIME(6)、TEXT、DOUBLE、EnumType.STRING、nullable
+- [x] **10.3**：`ReviewHistoryService.ensureHistory` 接入首次接收成功路径；幂等创建 report/findings；写前长度校验；0-based ordinal；缺失 finding 自愈；异常被隔离并记录脱敏原因，不改变 Phase 9 发布流程
+- [x] **10.4**：`ensurePublishHistory` 接入发布完成路径；仅 PUBLISHED 项写入 comment；回写 report 的发布状态、评论计数、summary id 与 `published_at`；失败隔离
+- [x] **10.5**：`GET /api/reviews/{taskId}`、`/findings`、`/comments`；`X-Internal-Token` 独立服务级令牌 fail-closed；分页默认 20 / 上限 100；404 不区分资源不存在、400 非法分页、409 历史不完整、500 references 不可读；REPEATABLE_READ 只读事务 + report/finding/comment 计数一致性闸门
+- [x] **10.6.2**：Testcontainers `mysql:8.0.46` 真实集成测试；44 项 IT（映射 7 / 约束 5 / 写入 17 / 查询 12 / 并发 3）；T5 中途失败与重试收敛；镜像固定；428 项单元测试通过
+- [x] **10.6.3**：`UniqueKeyViolationClassifier`（仅接受 `DuplicateKeyException` 或 `SQLException(1062, "23000")`，支持嵌套 cause / 循环，不解析 message）接入四个 catch；非唯一键异常重抛原始对象；唯一键冲突重读目标行，finding 需完整内容身份一致；真实 1062 分类断言 + 四入口非唯一键故障注入；新增 delivery 真实 1062（U6）与真实并发竞争（RaceIT）
+
+L-1 处理：
+
+- `ReviewResultService.receiveResult`、`insertReportSafely`、`insertFindingSafely`、`insertCommentSafely` 四个 catch 均先分类；非唯一键不再触发幂等重读
+- 唯一键冲突但目标行不存在，重抛原始异常（delivery 不再伪造 409）
+- finding 身份校验从 ordinal 扩展为 ordinal + category + severity + confidence + ruleId + title + filePath + startLine + endLine + description + reason + suggestion + referencesJson，全部 null-safe
+- 真实 MySQL 1062 由 `ReviewHistoryMySqlConstraintIT` 的 U1~U4（历史三表）与 U6（delivery `(task_id, commit_sha)`）验证，分类器断言通过；真实并发路径由 `ReviewResultDeliveryMySqlRaceIT` 验证：两线程先各自查到空结果，再同时 `saveAndFlush`，MySQL 产生 1 次真实 1062，失败线程进入 Service catch 后重读已提交行并返回 `duplicate=true`，获胜线程返回 `duplicate=false`；四入口非唯一键由 `ReviewHistoryMySqlL1IT` 的测试专用 Repository 代理注入 `SQLException(1048, "23000")` 验证
+- RaceIT 额外约束：Repository 代理只控制时序并记录真实异常，不伪造异常；断言前两次查询均返回空、`lookupCount=3`（两次预查询 + 失败线程 catch 重读）、`duplicateFailures=1`、最终仅 1 条 delivery、`publishService.publish` 恰好 1 次；不断言两个响应的 `publish_status` 相同
+- L-1 实现与测试已完成；2026-11-06 经实际代码与测试报告复核后正式关闭
+
+验证结果：
+
+```text
+mvn -Pmysql-it clean verify
+单元测试：445 passed / 0 failed / 0 errors / 0 skipped
+集成测试：50 passed / 0 failed / 0 errors / 0 skipped
+BUILD SUCCESS
+
+mvn test
+445 passed / 0 failed / 0 errors / 0 skipped
+BUILD SUCCESS
+```
+
+MySQL IT 分布：
+
+```text
+ReviewHistoryMySqlConcurrencyIT   3
+ReviewHistoryMySqlConstraintIT    6（U6 新增 delivery 真实 1062）
+ReviewHistoryMySqlL1IT            4
+ReviewHistoryMySqlMappingIT       7
+ReviewHistoryMySqlQueryIT        12
+ReviewHistoryMySqlWriteIT        17
+ReviewResultDeliveryMySqlRaceIT   1（新增真实并发 1062 → catch → 重读）
+合计                              50
+```
+
+数据隔离与当前库状态：
+
+- 所有 MySQL IT 仅在 Testcontainers 临时库 `codesentinel_it` 中执行，镜像 `mysql:8.0.46`；
+- 当前 `codesentinel` 仅执行只读 `SELECT COUNT(*)`，未写入：
+  `review_task=8`、`review_result_delivery=3`、`review_report=0`、`review_finding=0`、`review_comment=0`；
+- 未调用 GitHub API；测试容器与 Ryuk 已自动清理；
+- `review_history.sql` SHA256 未变：`85DBD4AFAA6D2672EECD21E8B9FDC5C4C840EF3E93E9935DEB01B61EC62DA395`。
+
+Git 状态（10.6.3 记录时点）：
+
+```text
+分支: feature/phase10-mysql-history
+HEAD: ccfaecc23b5340d0a7a8d012f283b59020e345c0
+已跟踪修改: 8
+未跟踪文件: 42
+```
+
+> 上述 8/42 是 10.6.3 实施完成时的快照，不是本轮文档修复后的当前值；本轮新增 `docs/PROJECT_DESIGN.md` 修改后，当前为 9 个已跟踪修改 + 42 个未跟踪文件。
+
+未提交、未推送、未合并；未执行 reset/clean/checkout；10.1~10.5 的既有改动保留。
+
+10.6.3 实际修改范围：
+
+- 生产代码：
+  - 新增 `cn.codesentinel.persistence.UniqueKeyViolationClassifier`；
+  - `ReviewResultService.receiveResult` 的 delivery 插入 catch 接入分类器：非唯一键原样重抛，唯一键冲突后重读；目标行不存在时重抛原异常，不再伪造 409；
+  - `ReviewHistoryService` 的 `insertReportSafely` / `insertFindingSafely` / `insertCommentSafely` 接入分类器，非唯一键原样重抛；finding 以完整内容身份校验，comment 以 ordinal + file/line 身份校验。
+- 测试代码与测试辅助代码：
+  - 新增 `UniqueKeyViolationClassifierTest`、`ReviewHistoryMySqlL1IT`、`ReviewResultDeliveryMySqlRaceIT`；
+  - 扩展 `ReviewHistoryMySqlConstraintIT`（U6：delivery `(task_id, commit_sha)` 真实 1062）、`ReviewHistoryServiceTest`、`ReviewResultServiceTest`、`CodeSentinelApplicationTests` 等；
+  - 10.6.3 的验证结果为 445 单元 + 50 MySQL IT。
+- 10.6.3 未修改：`review_history.sql` / `review_result_delivery.sql`、Entity、Repository 接口、Controller/API 行为、`application.yml`（2026-11-06 仅在 `ReviewResultController` / `ReviewResultService` 同步 Javadoc，无行为变更）。
+
+说明：工作区中 `ReviewResultController` 的 token 比较抽取、`application.yml` 与 `.env.example` 的 `review.history.internal-token` 等改动来自 10.5；`pom.xml` 的 Testcontainers 依赖与 `mysql-it` profile 来自 10.6.2；均不是 10.6.3 新增。本轮只核对并保留，不将其归入 10.6.3。
+
+当前状态：
+
+```text
+Phase 9：GitHub Summary + Inline Comment ✅ 已完成并合并 main（PR #7 / ccfaecc；真实 GitHub E2E 未执行）
+Phase 10：MySQL 历史记录 🟡 进行中（10.1~10.6.3 完成并验证；445 单元 + 50 IT；L-1 已关闭；未提交）
+```
+
+下一步：
+
+```text
+按 §30.1 提交/推送/创建 PR（需用户决策）
+  → 合并后进行 Phase 10 收尾
+  → 再决策 Phase 11 Dashboard
+```
 
 ### 2026-10-13 (4)
 
@@ -3515,42 +3740,49 @@ Integration Test
 
 # 23. 当前唯一下一步
 
-Phase 6（Code Context）已完成、提交并合并至 `main`（commit `16ac526`，PR #4 merge `35ba7a67`）。Phase 7.1 至 7.5.1、7.6（PMD 适配器）、7.6.1（PMD 启动方式安全补丁）、7.6.2（PMD 7.28.0 真实联调）、7.7.1（Checkstyle 适配器）与 7.7.2（Checkstyle 14.3.0 真实联调）已完成：`agent/app/schemas/static_analysis.py` + `agent/app/analyzers/`（execution / json_output / tool_runner / path_guard / ruff_adapter / bandit_adapter / semgrep_adapter / pmd_adapter / checkstyle_adapter）+ 1118 项新增测试，Python 全量 2170 passed / 2 skipped，分支 `feature/phase7-static-analysis`；PMD 与 Checkstyle 真实联调均已通过，Phase 7 已正式验收通过（2026-10-10）；已提交 `584a90e`；PR #5 已审查、测试并合并至 `main`（merge commit `d305b47`，2026-10-11），`584a90e` / `1a6d3ee` 已进入 `origin/main`；Phase 8 基线分支 `feature/phase8-langgraph-multi-agent` 已从 `d305b47` 创建。
+Phase 9 已合并至 `main`（PR #7 / merge commit `ccfaecc`）。Phase 10（MySQL 历史记录）已完成 10.1~10.6.3，并通过 2026-11-06 实际测试报告核对：
 
 ```text
-纯 Python：Diff → File Context → Method Context → Class Context → Related Code
-          → Context Size Control / Token 控制 → PrContext DTO / PrContextClient
-          → CodeContextBuilder 装配 → ReviewService 接线（取码失败降级 degraded）
-          → Prompt 渲染（diff + methods + related + 可用性/截断声明 + 行号硬约束）
-Java：    GET /api/tasks/{taskId}/pr-context（分页 + 内容保护 + 单 Token 复用）
-真实 E2E：PR #3（task 3~7；测试用，未合并）
-提交合并：PR #4（merge `35ba7a67`）；分支 feature/phase6-code-context 已清理
-Phase 7.1：StaticAnalysisTool / Status / ErrorCode / Finding / Result（纯 Schema + 126 测试）
-Phase 7.2：ExecutionStatus / CommandExecutionRequest / Result / Executor / SubprocessExecutor / JsonParseResult / parse_json_output / ToolRunner（+133 测试）
-Phase 7.3：RuffAdapter（命令 / 输入与路径校验 / 状态与退出码映射 / JSON 严格解析 / 类别与严重度映射，+126 测试）
-Phase 7.4：BanditAdapter（命令 / 状态与解析策略 / 诊断与严重度映射 / 路径守卫复用，+133 测试）
-Phase 7.5：SemgrepAdapter（可信配置 / 命令 / 状态与退出码 / 解析与扫描完整性 / 严重度与类别映射，+159 测试）
-Phase 7.5.1：path_guard（validate_repo_dir / validate_targets / normalize_output_path / map_output_path / is_within；三适配器统一复用，+76 测试）
-Phase 7.6：PMDAdapter（规则集可信边界 / 命令 / 状态与退出码 / 解析与扫描完整性 / 优先级与类别映射，+169 测试）
-Phase 7.6.1：PMD 启动方式安全补丁（java 直连替代 pmd.bat；pmd_home / Java 启动器解析校验；敌意文件名安全回归，+35 测试）
-Phase 7.6.2：PMD 7.28.0 真实联调（java 直连 / 含空格 pmd_home / 退出码 0/4/1 / 特殊文件名逐字映射；PMD 204、全量 2009；无代码改动）
-Phase 7.7.1：CheckstyleAdapter（XML 报告 / java 直连 / 可信 config / picocli 目标策略 / 退出码与字段映射，+161 测试；真实联调待发行包）
-Phase 7.7.2：Checkstyle 14.3.0 真实联调（A~E 全部 PASS；stdout 纯 XML / summary 在 stderr / 退出码 error 计数实测；单测 161、全量 2170）
+10.1   三张历史表 + 手工 DDL
+10.2   Entity / Repository
+10.3   接收流结构化写入（幂等、自愈）
+10.4   发布结果写入（comment / report 发布字段）
+10.5   查询 API（/api/reviews/{taskId}）
+10.6.2 真实 MySQL IT：44 项（历史阶段结果）
+10.6.3 唯一键冲突分类 + 幂等加固：445 单元 + 50 IT；L-1 已关闭
 ```
 
-Phase 8（LangGraph Multi-Agent）已完成（2026-10-12，用户确认）：8.1~8.9 实现并推送至 `feature/phase8-langgraph-multi-agent`（HEAD `071a2ff`，20 commits，最终全量 2698 passed / 8 skipped），PR #6 OPEN / MERGEABLE / CLEAN 待仓库所有者合并；生产路由切换、真实工具/真实 LLM 联调、评测集实测与 Validator 语义闸门为后续决策项。下一步为 **Phase 9：GitHub Summary + Inline Comment**（需先合并 PR #6，再按 AGENTS §30.1 从 `main` 创建新分支）。未实现部分不提前标记完成；已就位：调度器、最小图、共享预算上下文与多节点预算分配、Planner 与四个维度 Agent、有界上下文载荷与 Finding 验证、Validator（结构验证 + 变更行锚定 + 类别校验 + 安全计数）、确定性聚合去重、Reporter（稳定报告结构 + degraded 显式化）、`AnalysisReport → ReviewTaskResult` 显式映射（映射不完整→DEGRADED）、静态执行降级与 disabled 显式形状、共享 deadline 清理预留与工具等待封顶、评测基础（test-cases + 指标计算）、生产切换强守卫、默认测试安全（live opt-in + 出站网络阻断）；仍待实现：分析链路与生产契约映射评估（评测集实测）、真实工具/真实 LLM 联调（本机未安装工具；opt-in 用例已就绪）、契约映射接入路由的替换式改造、finding 语义级合并与行号定位校验、Validator 语义闸门（规则引擎/真实性判定）、Java 静态工具接入（方案已记录）。
+当前唯一动作：
 
-已知限制（不阻塞 Phase 6 验收）：Imports / namespace / package 分析未实现。
+```text
+Phase 10 提交/PR 决策（需用户确认）
+```
+
+下一步：
+
+```text
+1. 按 AGENTS §30.1 提交 Phase 10 改动并创建 PR（需用户决策）
+2. 合并后完成 Phase 10 收尾
+3. 再决策 Phase 11 Dashboard
+```
+
+仍需保留的后续项：
+
+```text
+Phase 9 真实 GitHub E2E 发布验证（需出网与用户授权）
+Phase 10 既有 3 条 delivery 的历史回填（如需要，单独设计）
+Phase 10.6.3 覆盖缺口（已关闭：delivery 真实 1062 + 真实并发 catch/重读）
+Phase 10 L-1（已关闭：非唯一键重抛 + 身份确认 + 真实 1062/并发测试）
+```
 
 不要提前实现：
 
 ```text
-LangGraph Multi-Agent (Phase 8)
-GitHub Comment (Phase 9)
-MySQL 历史记录 (Phase 10)
 RAG
 Milvus
 Dashboard
 VS Code
+GitHub Action
 Auto Fix
+多租户 / SSO / 计费
 ```
