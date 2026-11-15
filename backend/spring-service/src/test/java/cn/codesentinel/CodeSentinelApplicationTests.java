@@ -1,5 +1,6 @@
 package cn.codesentinel;
 
+import cn.codesentinel.statistics.ReviewStatisticsRepository;
 import cn.codesentinel.task.ReviewCommentRepository;
 import cn.codesentinel.task.ReviewFindingRepository;
 import cn.codesentinel.task.ReviewReportRepository;
@@ -33,6 +34,9 @@ class CodeSentinelApplicationTests {
 
     @MockBean
     private ReviewCommentRepository reviewCommentRepository;
+
+    @MockBean
+    private ReviewStatisticsRepository reviewStatisticsRepository;
 
     @MockBean
     private StringRedisTemplate stringRedisTemplate;

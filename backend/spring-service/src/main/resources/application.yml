@@ -13,6 +13,9 @@ spring:
 
 server:
   port: ${SPRING_SERVER_PORT:8080}
+  # DashboardLocalAccessFilter uses the TCP peer address. Forwarded headers
+  # must not be able to rewrite the local-only Dashboard boundary.
+  forward-headers-strategy: none
 
 management:
   endpoints:

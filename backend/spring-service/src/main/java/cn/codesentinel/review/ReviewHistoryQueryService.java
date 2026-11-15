@@ -136,8 +136,12 @@ public class ReviewHistoryQueryService {
         }
     }
 
-    private static ReviewReportResponse toReportResponse(ReviewTask task,
-                                                          ReviewReport report) {
+    /**
+     * Package-private so the Dashboard list service can reuse the exact
+     * Phase 10 response mapping without a second DTO contract.
+     */
+    static ReviewReportResponse toReportResponse(ReviewTask task,
+                                                 ReviewReport report) {
         return new ReviewReportResponse(
                 task.getId(),
                 task.getOwner(),

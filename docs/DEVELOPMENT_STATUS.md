@@ -19,11 +19,15 @@
 
 ## 当前阶段
 
-**Phase 10：MySQL 历史记录 — 🟡 进行中（10.1~10.6.3 已完成并通过实际代码/测试报告核对；445 项单元测试 + 50 项 MySQL 集成测试通过；L-1 已关闭；Phase 10 改动尚未提交）**
+**Phase 11：Dashboard — 🟡 功能实现与文档收尾完成（PASS WITH WARNINGS；六项目标 6/6；Phase 11.4-A 文档收尾报告已验收）；代码位于 `phase11/dashboard` 分支，尚未提交、创建 PR 或合并 `main`；PR 准备尚未正式完成**
+
+## 下一阶段
+
+**Phase 12：Custom Rules — ⬜ 未开始（等待 Phase 11 提交/PR/合并后再启动）**
 
 ## 当前任务
 
-Phase 9 已合并至 `main`（PR #7，merge commit `ccfaecc`，2026-10-13；9.5.3B1/B2/C 全部实现；**真实 GitHub E2E 发布验证仍未执行**，保留为后续验证项）。Phase 10 已在 `feature/phase10-mysql-history` 分支完成实施：10.1 手工 DDL、10.2 实体/Repository、10.3 接收流结构化写入、10.4 发布结果写入、10.5 查询 API、10.6.2 真实 MySQL 集成测试、10.6.3 唯一键冲突分类与幂等加固均已完成。最新实际验证（2026-11-06）：`mvn -Pmysql-it clean verify` = 39 个单元测试类 445 项 + 7 个 MySQL IT 类 50 项，0 失败/0 错误/0 跳过，BUILD SUCCESS。10.6.3 的两个真实 MySQL 缺口已补齐并有测试证据：delivery 真实 1062（U6）与真实并发 1062 → Service catch → 幂等重读（`ReviewResultDeliveryMySqlRaceIT`）；L-1 已关闭。下一步按 §30.1 提交/推送/创建 PR（需用户决策）。
+Phase 1–10 已全部完成。Phase 10 已通过 PR #8 合并到 `main`（merge commit `27e3a41`，2026-11-10），合并后本地同步与验证为 **PASS**：Java 编译 BUILD SUCCESS；Java 单元测试 445 passed；MySQL 集成测试 50 passed；Python 单元测试 2715 passed / 8 skipped / 1 warning。Phase 10 原始提交为 `5d93028`。真实 GitHub E2E 仍未执行，Publisher → History → Query 接缝 E2E 尚未覆盖，仓库尚无 CI；本地 `.env` 尚未配置 `REVIEW_HISTORY_INTERNAL_TOKEN`。Phase 11 Dashboard 六项注册目标已全部实现，Phase 11.3-C 最终收尾审计结论为 **PASS WITH WARNINGS**（6/6）；Phase 11.3-D 文档收尾已完成，Phase 11.4-A 修正后的文档收尾报告已验收通过（`docs/reports/Phase11_3_D_Documentation_Closeout_Report.md`，840 行 / 38,935 bytes）。Phase 11 当前仍位于 `phase11/dashboard` 分支，HEAD 为 `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`，尚未提交、创建 PR 或合并 `main`；Phase 11 的 PR 准备工作尚未正式完成。Phase 12 尚未开始。
 
 ## 当前总体进度
 
@@ -37,8 +41,11 @@ Phase 6  Code Context             ✅ 已完成（6.1~6.7.6，真实 PR E2E 验�
 Phase 7  Static Analysis          ✅ 已完成并合并 main（PR #5 / d305b47；PMD/Checkstyle 真实联调通过；Ruff/Bandit/Semgrep 真实联调待完成）
 Phase 8  LangGraph Multi-Agent    ✅ 已完成并合并 main（PR #6 / merge `87c8d31`；2026-10-12 用户确认；8.1~8.9；全量 2698 passed / 8 skipped）
 Phase 9  GitHub 评论              ✅ 已完成并合并 main（PR #7 / merge `ccfaecc`；9.5.3B1/B2/C；真实 GitHub E2E 未执行，保留为后续验证项）
-Phase 10 MySQL 历史记录           🟡 进行中（10.1~10.6.3 已完成并验证；445 单元 + 50 MySQL IT；L-1 已关闭；未提交）
+Phase 10 MySQL 历史记录           ✅ 已完成并合并 main（PR #8 / merge `27e3a41`；合并后验证 PASS；445 单元 + 50 MySQL IT；2715 Python passed / 8 skipped）
+Phase 11 Dashboard               🟡 功能与文档收尾完成（11.3-C PASS WITH WARNINGS；11.4-A 报告验收通过；6/6；未提交/未合并）
 ```
+
+Phase 1–10 已全部完成；Phase 11 Dashboard 六项目标已实现，11.3-C 审计为 PASS WITH WARNINGS，11.3-D 文档收尾与 11.4-A 报告验收已完成，但尚未提交/合并、PR 准备尚未正式完成；Phase 12 尚未开始。
 
 ---
 
@@ -1225,7 +1232,7 @@ LLM Agent
 
 ### Phase 7.6.2：PMD 7.28.0 真实联调（已完成，待验收）
 
-- [x] 环境：本地发行包 `D:\tools\pmd\pmd-bin-7.28.0`（PMD 7.28.0 / Java 21）；联调夹具与脚本仅位于系统临时目录（`%TEMP%\opencode\pmd-it-7.6.2`），未创建 / 修改任何项目文件；未绕过适配器（全部经 `PMDAdapter` + 真实 `SubprocessExecutor`）
+- [x] 环境：本地发行包 `<pmd-install-dir>`（PMD 7.28.0 / Java 21）；联调夹具与脚本仅位于系统临时目录（`%TEMP%\pmd-it-7.6.2`），未创建 / 修改任何项目文件；未绕过适配器（全部经 `PMDAdapter` + 真实 `SubprocessExecutor`）
 - [x] A 干净文件（`package demo;` 的 `Clean.java`）：exit_code=0，status=OK，findings=0，files=[]（PMD 解析成功且无违规；文件缺失 / 不可解析时 PMD 会 exit 1，故 exit 0 可证明已实际分析）
 - [x] B 违规文件（未使用 import）：exit_code=4 → 适配器按既有策略判 OK；findings=1：`rule_id=UnnecessaryImport`、`file_path=Violation.java`、`start_line=3`、`end_line=3`、`severity=LOW`（priority 4）、`category=QUALITY`（Code Style）——字段与 CLI JSON 一致，非零退出码未被误判为失败
 - [x] C 无效 ruleset：
@@ -1267,8 +1274,8 @@ LLM Agent
 
 ### Phase 7.7.2：Checkstyle 14.3.0 真实联调（已完成；收尾审查同步）
 
-- [x] JAR：`D:\tools\checkstyle\checkstyle-14.3.0-all.jar`（14,731,429 bytes；8529 条目；Main-Class `com.puppycrawl.tools.checkstyle.Main`；`-V` → Checkstyle 14.3.0；内建 `google_checks.xml` / `sun_checks.xml` 均在包内）；全部经 `CheckstyleAdapter` + 真实 `SubprocessExecutor`（带请求录制），夹具仅在 `%TEMP%\opencode\checkstyle-it-7.7.2`
-- [x] Java 启动器：适配器实际解析为 `...\javapath_target_3189134406\java.exe`（非 `.bat` / `.cmd`）
+- [x] JAR：`<checkstyle-jar>`（14,731,429 bytes；8529 条目；Main-Class `com.puppycrawl.tools.checkstyle.Main`；`-V` → Checkstyle 14.3.0；内建 `google_checks.xml` / `sun_checks.xml` 均在包内）；全部经 `CheckstyleAdapter` + 真实 `SubprocessExecutor`（带请求录制），夹具仅在 `%TEMP%\checkstyle-it-7.7.2`
+- [x] Java 启动器：适配器实际解析为 `...\<java-launcher>\java.exe`（非 `.bat` / `.cmd`）
 - [x] A 干净文件（外部最小配置，仅 UnusedImports）：exit_code=0，status=OK，findings=0；录制命令 / cwd / 仓库相对目标与设计一致
 - [x] B 违规文件（未使用 import）：exit_code=1（非零 ≠ 失败）；finding `rule_id=...checks.imports.UnusedImportsCheck`、severity=HIGH、category=QUALITY、file_path=Violation.java、行 1-1、message UTF-8 正确解码
 - [x] C 无效配置：缺失外部文件 → 构造 `ValueError`；引用不存在模块的配置 → exit_code=4294967294（异常退出 -2）→ `ERROR` + `PROCESS_FAILED`，findings=0
@@ -1353,11 +1360,11 @@ Bug Agent   Security Agent  Performance   Quality Agent
 
 ## Phase 8 状态
 
-**✅ 已完成（2026-10-12，用户确认）**：8.1~8.9 全部实现并提交推送至 `feature/phase8-langgraph-multi-agent`（HEAD `071a2ff`，20 commits）；最终默认全量 **2698 passed / 8 skipped / 1 warning**；PR #6 OPEN / MERGEABLE / CLEAN，待仓库所有者评审合并。
+**✅ 已完成并合并 `main`（2026-10-12 用户确认；PR #6 / merge commit `87c8d31`）**：8.1~8.9 全部实现；合并前最终默认全量 **2698 passed / 8 skipped / 1 warning**。
 
 ## 当前任务
 
-Phase 8（LangGraph Multi-Agent）已完成（见记录 2026-10-11 (4)~(11) 与 2026-10-12）：最小图（8.1）、共享预算上下文与状态/路由（8.2）、Planner 驱动分析工作流（8.3）、有界上下文载荷与 Finding 验证及 BUG Agent 真实上下文闭环（8.4）、生产路径经图工作流服务（8.5）、静态分析工具接入生产 Review 流程（8.6）、完整多 Agent 审查闭环（8.7）、生产切换前质量加固（8.8）、状态语义与执行预算治理（8.9）。**后续决策项（不属于本阶段完成判定，未完成不得标记）**：生产路由切换（需评测数据 + 映射接入替换式改造）、真实静态工具/真实 DeepSeek 联调、评测集实测 Precision/Recall、Validator 语义闸门（规则引擎/真实性判定）、finding 语义级合并与行号定位校验。下一步为 **Phase 9：GitHub Summary + Inline Comment**（需先由仓库所有者合并 PR #6，再按 AGENTS §30.1 从 `main` 创建新分支）。
+Phase 8（LangGraph Multi-Agent）已完成并合并 `main`（PR #6 / merge commit `87c8d31`）。本阶段后续决策项仍保留：生产路由切换（需评测数据 + 映射接入替换式改造）、真实静态工具/真实 DeepSeek 联调、评测集实测 Precision/Recall、Validator 语义闸门（规则引擎/真实性判定）、finding 语义级合并与行号定位校验。Phase 9、Phase 10 已完成；Phase 11 Dashboard 六项目标已实现，11.3-C 审计为 PASS WITH WARNINGS，11.3-D 文档收尾与 11.4-A 报告验收已完成，尚未提交/合并且 PR 准备尚未正式完成；Phase 12 尚未开始。
 
 ## 阻塞问题
 
@@ -1447,7 +1454,7 @@ REQUEST_CHANGES
 
 ## 当前任务
 
-Phase 9 已合并，当前进入 Phase 10；真实 GitHub E2E 发布验证仍为后续验证项（需出网与用户授权），不阻塞 Phase 9 代码合并。Phase 10 在 `feature/phase10-mysql-history` 分支推进至 10.6.3 并完成验证；下一步为提交/PR 决策（需用户确认）。
+Phase 9 已合并；Phase 10 也已通过 PR #8 合并并完成合并后验证（PASS）。真实 GitHub E2E 发布验证仍为后续验证项（需出网与用户授权），不阻塞代码合并。Phase 11 Dashboard 六项目标已实现，11.3-C 审计为 PASS WITH WARNINGS，11.3-D 文档收尾与 11.4-A 报告验收已完成，尚未提交/合并且 PR 准备尚未正式完成；Phase 12 尚未开始。
 
 ## 阻塞问题
 
@@ -1478,7 +1485,7 @@ pull_request
 ## 子任务
 
 - [x] 数据库 Schema（`review_history.sql` 手工 DDL，无迁移工具）
-- [ ] Migration（明确不引入迁移工具；生产库需手工执行 DDL）
+- [x] Migration 决策（明确不引入迁移工具；本地/新环境手工执行 `review_history.sql`；不作为 Phase 10 未完成项）
 - [x] Entity / Model
 - [x] Repository
 - [x] Service
@@ -1500,7 +1507,34 @@ pull_request
 
 ## Phase 10 状态
 
-**🟡 进行中（10.1~10.6.3 已完成并通过实际代码/测试报告核对；445 单元 + 50 MySQL 集成测试通过；L-1 已关闭；改动未提交）**
+**✅ 已完成并合并 `main`（PR #8 / merge commit `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`，2026-11-10；合并后验证 PASS）**
+
+合并信息：
+
+| 项目 | 值 |
+|---|---|
+| PR | #8 <https://github.com/zhangyu1108l/CodeSentinel/pull/8> |
+| Base / Head | `main` / `feature/phase10-mysql-history` |
+| Phase 10 原始 Commit | `5d93028b703a6a02034b6c1d9525c561c5a7fcb9` |
+| Merge Commit | `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7` |
+| 合并时间 | 2026-11-10 19:39:25 +0800 |
+| 合并方式 | 普通 Merge Commit（非 Squash / Rebase） |
+| 合并后验证 | **PASS**（2026-11-10） |
+
+合并后实际测试结果（2026-11-10）：
+
+| 项目 | 结果 |
+|---|---|
+| Java 编译 | BUILD SUCCESS（85 个源文件） |
+| Java 单元测试 | 445 passed / 0 failed / 0 errors / 0 skipped |
+| MySQL 集成测试 | 50 passed / 0 failed / 0 errors / 0 skipped（Testcontainers `mysql:8.0.46`） |
+| Python 单元测试 | 2715 passed / 8 skipped / 1 warning |
+
+本地运行前置条件：
+
+- 本地 MySQL 已存在 `review_report` / `review_finding` / `review_comment` 三张表（当前 0 行）；新环境仍需手工执行 `backend/spring-service/src/main/resources/db/review_history.sql`。
+- `.env` 尚未配置 `REVIEW_HISTORY_INTERNAL_TOKEN`；未配置时 `/api/reviews/**` 会 fail-closed 返回 401。
+- `.env` 中已有 `REVIEW_RESULT_INTERNAL_TOKEN`，但应用不会自动加载 `.env`，启动前需导出到运行环境。
 
 ### Phase 10 MVP 已接受的历史记录可靠性边界
 
@@ -1525,11 +1559,11 @@ Phase 10 的结构化历史记录采用 best-effort 写入策略。以下是 MVP
 
 ## 当前任务
 
-Phase 10.6.3 已完成并通过实际代码/测试报告核对（2026-11-06：445 单元 + 50 MySQL IT，0 失败/0 错误/0 跳过）；L-1 已关闭。下一步按 §30.1 提交/推送/创建 PR（需用户决策）；合并后再进行 Phase 10 收尾与 Phase 11 决策。真实 GitHub E2E（Phase 9）仍未执行。
+Phase 10 已完成并通过 PR #8 合并到 `main`（merge commit `27e3a41`）；合并后本地验证 PASS（Java 编译 BUILD SUCCESS；445 Java 单元测试、50 MySQL IT、2715 Python 单元测试通过）。Phase 11 Dashboard 六项目标已实现，11.3-C 审计为 PASS WITH WARNINGS（6/6）；11.3-D 文档收尾与 11.4-A 报告验收已完成，当前仍位于 `phase11/dashboard` 分支，尚未提交、创建 PR 或合并 `main`，PR 准备尚未正式完成；Phase 12 尚未开始。真实 GitHub E2E（Phase 9）仍未执行；Publisher → History → Query 接缝 E2E 尚未覆盖；仓库尚无 CI；本地 `REVIEW_HISTORY_INTERNAL_TOKEN` 尚未配置。
 
 ## 阻塞问题
 
-暂无技术阻塞。当前待办是 Phase 10 提交/PR 决策；Phase 10 改动尚未提交。
+暂无技术阻塞。Phase 10 已完成并合并；本地使用历史查询 API 前需配置 `REVIEW_HISTORY_INTERNAL_TOKEN`（配置动作，不构成代码阻塞）。
 
 ---
 
@@ -1566,6 +1600,8 @@ Phase 10.6.3 已完成并通过实际代码/测试报告核对（2026-11-06：44
         ↓
 [ ] GitHub Inline Comments
 ```
+
+> 当前状态（2026-11-10）：Phase 1–10 开发阶段已完成，Phase 10 已合并并验证 PASS。MVP 验收仍受未执行的真实 GitHub E2E、未覆盖的 Publisher → History → Query 接缝 E2E 等事项约束，不能仅凭阶段完成标记 MVP 最终验收通过。
 
 ---
 
@@ -1606,14 +1642,71 @@ test-cases/
 
 MVP 完成后：
 
+> **Phase 11：Dashboard — 🟡 功能实现与文档收尾完成（PASS WITH WARNINGS；六项目标 6/6；Phase 11.4-A 文档收尾报告已验收）；代码位于 `phase11/dashboard` 分支，尚未提交、创建 PR 或合并 `main`，PR 准备尚未正式完成。**  
+> 最终审计证据见 `docs/reports/Phase11_3_C_Final_Closeout_Audit_Report.md`；文档收尾报告见 `docs/reports/Phase11_3_D_Documentation_Closeout_Report.md`（840 行 / 38,935 bytes，Phase 11.4-A 修正后验收通过）；当前下一阶段为 **Phase 12：Custom Rules（尚未启动）**。
+
 ## Dashboard
 
-- [ ] Review History
-- [ ] Finding Statistics
-- [ ] Security Trend
-- [ ] Bug Trend
-- [ ] Performance Trend
-- [ ] Quality Trend
+- [x] Review History
+- [x] Finding Statistics
+- [x] Security Trend
+- [x] Bug Trend
+- [x] Performance Trend
+- [x] Quality Trend
+
+### Phase 11 状态
+
+| 项目 | 状态 |
+|---|---|
+| 六项目标 | ✅ 6/6 已实现（Review History / Finding Statistics / Security Trend / Bug Trend / Performance Trend / Quality Trend） |
+| Phase 11 验收状态 | ✅ **PASS WITH WARNINGS**（Phase 11.3-C 最终审计） |
+| P0 / P1 / P2 | 0 / 0 / 0 |
+| Phase 11.3-D 文档收尾 | ✅ 已完成（报告：`docs/reports/Phase11_3_D_Documentation_Closeout_Report.md`） |
+| Phase 11.4-A | ✅ 报告修正后已验收通过（840 行 / 38,935 bytes） |
+| PR 准备 | 🟡 尚未正式完成（需按 `docs/reports/Phase11_Pre_PR_Audit_Report.md` 的条件推进） |
+| 分支 | `phase11/dashboard` |
+| HEAD | `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`（Phase 10 PR #8 merge commit） |
+| `main...HEAD` | `0 0` |
+| 提交 / PR / 合并 | ⬜ 尚未 commit、尚未创建 PR、尚未合并 `main` |
+| Phase 12 | ⬜ 未开始 |
+
+### Phase 11 P3 技术债（待后续处理）
+
+> 以下均为 **P3**，不阻断六项目标验收；本阶段只登记，不修复。详细证据见 Phase 11.3-C 最终审计报告、Phase 11.3-D 文档收尾报告与 `docs/reports/Phase11_Pre_PR_Audit_Report.md`。
+>
+> 登记口径：A 类 2 项、B 类 7 项、C 类 3 项、D 类 6 项，合计 **18 项**。Phase 11.3-D 只在文档/UI 层面清理了过期文案与状态文档滞后的表现，**不代表任何底层 P3 已修复**；以下各项仍为“未修复”或“NOT VERIFIED”，不得标记为已解决。
+
+**A. 性能技术债**
+
+- `review_report.created_at` 缺少索引，统计查询可能全表扫描。（未修复）
+- `/api/dashboard/statistics/reviews` 仍在 Java 内存排序和分页。（未修复）
+
+**B. 测试与验证债**
+
+- `ReviewStatisticsAcceptanceDbIT` 默认禁用，需要显式启用。（未修复）
+- 真实 UI 第 2 页尚未验证。（NOT VERIFIED）
+- 生产构建产物上的浏览器 E2E 尚未验证。（NOT VERIFIED）
+- 多浏览器和真实移动设备尚未验证。（NOT VERIFIED）
+- 当前项目尚无 CI 自动回归。（未修复）
+- 真实 GitHub PR 全链路 E2E 尚未验证。（NOT VERIFIED）
+- Publisher → History → Query 接缝 E2E 尚未验证。（NOT VERIFIED）
+
+**C. 文档与界面债**
+
+- 范围条显示时间省略微秒。（未修复）
+- History Controller 缺少通用异常兜底。（未修复）
+- 首页尚未展示真实动态统计摘要（非阶段阻断项）。（未修复）
+
+**D. 契约与数据边界债**
+
+- B1 审计中的排序 tie-breaker 与早期设计示例存在差异。（未修复）
+- History `commitSha` 数据来源与早期设计示例不同。（未修复）
+- SQL `NOT IN` 对 `NULL` 的处理需要未来外部数据导入时关注。（未修复）
+- SQL 枚举比较与 Java 状态判断的大小写语义需要统一。（未修复）
+- 验收数据库 URL 尚未限制 host/port。（未修复）
+- 部分早期报告的错误响应字段和测试计数存在口径差异。（未修复）
+
+> 以上 18 项均标记为“待后续处理/技术债”，尚未修复；不得据此修改业务代码、数据库或测试。
 
 ## Custom Rules
 
@@ -1699,11 +1792,27 @@ Phase 9（GitHub 评论）相关：
 
 Phase 10（MySQL 历史记录）相关：
 
-- [ ] Phase 10 改动尚未提交
-  - 影响：当前 9 个已跟踪修改 + 42 个未跟踪文件仅存在于工作区，尚未形成可审查 PR
-  - 原因：按用户要求，Phase 10 完成验证后再决定提交/PR
-  - 临时方案：无
-  - 最终方案：按 §30.1 提交并创建 PR（需用户决策）
+- [x] Phase 10 已通过 PR #8 合并到 `main`（merge commit `27e3a41`，2026-11-10）
+  - 合并后验证：Java 编译 BUILD SUCCESS；Java 单元测试 445 passed；MySQL 集成测试 50 passed；Python 单元测试 2715 passed / 8 skipped
+  - 说明：Phase 10 原始提交 `5d93028` 已进入 `main` 历史
+
+- [ ] 本地尚未配置 `REVIEW_HISTORY_INTERNAL_TOKEN`
+  - 影响：`/api/reviews/**` 会 fail-closed 返回 401，历史查询不可用
+  - 原因：本地 `.env` 尚未补充该令牌，当前 shell 环境也未导出
+  - 临时方案：本地运行前配置强随机令牌并导出到 Spring Boot 运行环境
+  - 最终方案：按本地运行清单完成配置；不得把令牌写入 Git、日志或浏览器
+
+- [ ] Publisher → History → Query 接缝 E2E 尚未覆盖
+  - 影响：真实 publisher outcome JSON → 历史写入 → 查询 API 的完整接缝未被单一 E2E 测试锁定；契约变化可能只在运行时以 best-effort ERROR 日志暴露
+  - 原因：既有 m-6 测试缺口；Phase 10 合并后验证未新增该测试
+  - 临时方案：由单元测试与真实 MySQL IT 分别覆盖各组件
+  - 最终方案：后续补充端到端接缝测试
+
+- [ ] 仓库尚无 CI
+  - 影响：445 单元 + 50 MySQL IT + 2715 Python 测试无法在 PR/分支上自动复验
+  - 原因：仓库未配置 `.github` Workflows；无 Check Runs / Commit Status
+  - 临时方案：本地按文档执行编译与测试命令
+  - 最终方案：后续增加 CI 流水线并固定 Docker endpoint
 
 - [x] L-1（非唯一键异常误吞）已关闭（Phase 10.6.3，2026-11-06 复核）
   - 关闭证据：`UniqueKeyViolationClassifier` 仅接受 `DuplicateKeyException` 或 `SQLException(1062, "23000")`；delivery / report / finding / comment 四个 catch 均先分类，非唯一键异常原样重抛，不再触发幂等重读；唯一键冲突只有在重新读取并确认目标行身份后才按幂等成功处理
@@ -1731,6 +1840,14 @@ Phase 10（MySQL 历史记录）相关：
   - 原因：Testcontainers 2.0.3 + Docker Desktop 的本地连接方式
   - 临时方案：按上述命令显式运行
   - 最终方案：CI 环境固定 Docker endpoint 并纳入流水线
+
+Phase 11（Dashboard）相关：
+
+- [ ] P3 技术债 A–D 共 18 项
+  - 影响：生产规模性能、验证完整度、文档准确性与契约边界；不阻断六项目标验收
+  - 原因：Phase 11 收尾阶段只登记，不修复
+  - 临时方案：无
+  - 最终方案：Phase 11 合并后按优先级逐项处理；详见 §16
 
 Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 
@@ -1764,7 +1881,60 @@ Phase 5 及更早的遗留技术债见 §8「已知问题 / 技术债」。
 
 ## 开发记录
 
+### 2026-11-15
+
+Phase 11 状态同步（Phase 11.4-B）：仅更新 `docs/DEVELOPMENT_STATUS.md`，不修改源码、配置、数据库、报告或其他文档；本次未运行测试、构建或数据库迁移。
+
+已完成：
+
+- [x] 确认 Phase 11 Dashboard 六项注册目标（Review History / Finding Statistics / Security Trend / Bug Trend / Performance Trend / Quality Trend）均已实现，Phase 11 验收状态为 **PASS WITH WARNINGS**。
+- [x] 确认 Phase 11.3-D 文档收尾已完成；Phase 11.4-A 修正后的报告 `docs/reports/Phase11_3_D_Documentation_Closeout_Report.md` 已验收通过（840 行 / 38,935 bytes）。
+- [x] 同步 P3 登记口径：A 类 2 项、B 类 7 项、C 类 3 项、D 类 6 项，合计 18 项；均未修复或仍为 NOT VERIFIED，未因本次文档更新而改变。
+- [x] 记录 Git 状态：分支 `phase11/dashboard`；HEAD `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`；`main...HEAD` 为 `0 0`；暂存区为空；Phase 11 尚未 commit、创建 PR 或合并 `main`。
+- [x] 确认 Phase 12 尚未开始；Phase 11 PR 准备尚未正式完成。
+
+测试与验证：
+
+- 本次仅执行文档同步与只读 Git 检查；未运行 Java / Python / 前端测试、构建、Lint 或数据库迁移。
+- 文中的测试计数均为历史结果，不代表本次执行。
+
+下一步：
+
+- 完成 Phase 11 PR 准备并按用户授权提交/创建 PR；Phase 12 等待 Phase 11 合并后另行启动。
+
+### 2026-11-10
+
+Phase 10 合并后收尾：PR #8 已合并到 `main`，合并后本地同步与验证完成，状态更新为 Phase 10 已完成、下一阶段 Phase 11 Dashboard（尚未开始）。
+
+已完成：
+
+- [x] PR #8 合并：普通 Merge Commit `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`（2026-11-10 19:39:25 +0800）；Phase 10 原始提交 `5d93028b703a6a02034b6c1d9525c561c5a7fcb9` 已进入 `main` 历史。
+- [x] 本地 `main` 快进同步至 `27e3a41`，与 `origin/main` 完全一致；未删除功能分支。
+- [x] 合并后验证 PASS：
+  - Java 编译：BUILD SUCCESS（85 个源文件）
+  - Java 单元测试：445 passed / 0 failed / 0 errors / 0 skipped
+  - MySQL 集成测试：50 passed / 0 failed / 0 errors / 0 skipped（Testcontainers `mysql:8.0.46`）
+  - Python 单元测试：2715 passed / 8 skipped / 1 warning
+- [x] 本地只读检查：`review_report` / `review_finding` / `review_comment` 三张表存在，InnoDB，当前 0 行。
+
+未完成 / 已知限制：
+
+- 本地 `.env` 尚未配置 `REVIEW_HISTORY_INTERNAL_TOKEN`；未配置时历史查询 API 返回 401。
+- 真实 GitHub E2E 尚未执行。
+- Publisher → History → Query 接缝 E2E 尚未覆盖。
+- 仓库尚无 CI。
+- M-1（服务级共享令牌，无仓库级/用户级授权）仍为已知 MVP 边界。
+- 既有 3 条 `review_result_delivery` 无结构化历史回填，旧任务查询返回 404。
+
+下一步：
+
+```text
+Phase 11：Dashboard（尚未开始）
+```
+
 ### 2026-11-06
+
+> 本记录是 2026-11-06 的阶段快照（当时 Phase 10 尚未提交/合并）。Phase 10 已于 2026-11-10 通过 PR #8 合并；当前状态以顶部状态和 2026-11-10 记录为准。
 
 Phase 10.6.3 文档同步与最终核对：以当前代码、实际测试实现和重新执行的测试结果为准，确认 10.6.3 已完成，L-1 关闭；本轮只修改文档与 Java Javadoc，未修改业务逻辑、测试代码或配置文件。
 
@@ -1820,7 +1990,7 @@ Phase 10 可靠性边界保持不变：结构化历史仍是 best-effort；历�
 
 ### 2026-11-05
 
-> 本记录是 2026-11-05 的阶段快照。2026-11-06 已完成 10.6.3 最终核对，L-1 正式关闭；当前状态以顶部状态和 2026-11-06 记录为准。
+> 本记录是 2026-11-05 的阶段快照。2026-11-06 已完成 10.6.3 最终核对，L-1 正式关闭；Phase 10 已于 2026-11-10 合并，当前状态以顶部状态和 2026-11-10 记录为准。
 
 Phase 10（MySQL 历史记录）10.1~10.6.3 实施完成；Phase 9 已合并 `main`。当时 Phase 10 改动未提交，10.6.3 待最终核对。
 
@@ -2658,7 +2828,7 @@ Phase 7.6.2（PMD 7.28.0 真实联调）完成，待验收。
 
 已完成：
 
-- [x] 真实联调（全部经 `PMDAdapter` + 真实 `SubprocessExecutor`；夹具仅在 `%TEMP%\opencode\pmd-it-7.6.2`，项目零改动）：
+- [x] 真实联调（全部经 `PMDAdapter` + 真实 `SubprocessExecutor`；夹具仅在 `%TEMP%\pmd-it-7.6.2`，项目零改动）：
   - A 干净文件 exit_code=0 / findings=0 / files=[]
   - B 未使用 import exit_code=4 / findings=1（UnnecessaryImport，line 3，LOW / QUALITY）
   - C1 缺失外部规则集文件 → 构造即 `ValueError`；C2 内建不存在引用与 C3 无效外部 ruleset → PMD exit_code=1 → `ERROR` + `PROCESS_FAILED`，findings=0
@@ -3740,49 +3910,49 @@ Integration Test
 
 # 23. 当前唯一下一步
 
-Phase 9 已合并至 `main`（PR #7 / merge commit `ccfaecc`）。Phase 10（MySQL 历史记录）已完成 10.1~10.6.3，并通过 2026-11-06 实际测试报告核对：
+Phase 1–10 已完成；Phase 11 Dashboard 六项目标已实现，11.3-C 最终收尾审计为 PASS WITH WARNINGS（6/6），11.3-D 文档收尾与 11.4-A 报告验收已完成；当前仍位于 `phase11/dashboard` 分支（HEAD `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`，`main...HEAD` 为 `0 0`），尚未提交、创建 PR 或合并 `main`，PR 准备尚未正式完成。Phase 10（MySQL 历史记录）已通过 PR #8 合并到 `main`（merge commit `27e3a41161cfa86ee2956ba0b3626a2bcc71eec7`，2026-11-10），合并后本地验证 PASS：
 
 ```text
-10.1   三张历史表 + 手工 DDL
-10.2   Entity / Repository
-10.3   接收流结构化写入（幂等、自愈）
-10.4   发布结果写入（comment / report 发布字段）
-10.5   查询 API（/api/reviews/{taskId}）
-10.6.2 真实 MySQL IT：44 项（历史阶段结果）
-10.6.3 唯一键冲突分类 + 幂等加固：445 单元 + 50 IT；L-1 已关闭
+Java 编译：BUILD SUCCESS
+Java 单元测试：445 passed / 0 failed / 0 errors / 0 skipped
+MySQL 集成测试：50 passed / 0 failed / 0 errors / 0 skipped
+Python 单元测试：2715 passed / 8 skipped / 1 warning
 ```
 
-当前唯一动作：
+当前下一阶段：
 
 ```text
-Phase 10 提交/PR 决策（需用户确认）
+Phase 12：Custom Rules（尚未开始）
 ```
 
 下一步：
 
 ```text
-1. 按 AGENTS §30.1 提交 Phase 10 改动并创建 PR（需用户决策）
-2. 合并后完成 Phase 10 收尾
-3. 再决策 Phase 11 Dashboard
+1. Phase 11.4-A 已验收通过；完成 Phase 11 PR 准备（按 Pre-PR Audit 条件）
+2. 按 §30.1 提交 phase11/dashboard 并创建 PR（需用户确认）
+3. 审查/合并后删除临时分支；Phase 12 另行启动
 ```
 
 仍需保留的后续项：
 
 ```text
+本地配置 REVIEW_HISTORY_INTERNAL_TOKEN
 Phase 9 真实 GitHub E2E 发布验证（需出网与用户授权）
+Publisher → History → Query 接缝 E2E
+仓库 CI 流水线
 Phase 10 既有 3 条 delivery 的历史回填（如需要，单独设计）
-Phase 10.6.3 覆盖缺口（已关闭：delivery 真实 1062 + 真实并发 catch/重读）
-Phase 10 L-1（已关闭：非唯一键重抛 + 身份确认 + 真实 1062/并发测试）
+M-1 服务级共享令牌边界（Dashboard 阶段再评估用户级鉴权）
+Phase 11 P3 技术债（见 §16；不阻断验收，尚未修复）
 ```
 
-不要提前实现：
+不要提前实现（Phase 12 尚未启动）：
 
 ```text
 RAG
 Milvus
-Dashboard
-VS Code
-GitHub Action
-Auto Fix
+Custom Rules（Phase 12）
+GitHub Action（Phase 14）
+VS Code（Phase 15）
+Auto Fix / Sandbox（Phase 16）
 多租户 / SSO / 计费
 ```
